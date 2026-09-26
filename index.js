@@ -12,8 +12,7 @@ const {
   Routes,
   SlashCommandBuilder
 } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
+const mongoose = require('mongoose');
 
 const client = new Client({
   intents: [
@@ -24,15 +23,13 @@ const client = new Client({
   ]
 });
 
-const DB_PATH = process.env.RENDER ? '/tmp/database.json' : path.join(__dirname, 'database.json');
-
 // --- ⚙️ AUTOMATED CHANNELS CONFIGURATION ---
 const UPLOAD_CHANNEL_ID = '1553172302420643950'; // Player screenshot upload channel
 const REVIEW_CHANNEL_ID = '1553177031523700838'; // Private staff approval channel
 // -------------------------------------------
 
 // --- 🛡️ ROLE SECURITY SETTINGS ---
-const STAFF_ROLE_ID = '1553324535128916070'; // Only players with this Role ID or Administrator can run admin commands
+const STAFF_ROLE_ID = '1553324535128916070'; // Staff Role ID
 // ----------------------------------
 
 // --- 📊 COMPETITIVE RANK ROLES ---
@@ -47,14 +44,22 @@ const RANK_ROLES = [
   { name: 'Bronze',   minMmr: 0,     id: '1553329700749705226' }
 ];
 
-function getDatabase() {
-  if (!fs.existsSync(DB_PATH)) fs.writeFileSync(DB_PATH, JSON.stringify({}));
-  return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
-}
+// --- 🗄️ CLOUD DATABASE SCHEMATIC DATA MODEL ---
+const playerSchema = new mongoose.Schema({
+  userId: { type: String, required: true, unique: true },
+  username: { type: String, default: 'Player' },
+  mmr: { type: Number, default: 0 },
+  wins: { type: Number, default: 0 },
+  losses: { type: Number, default: 0 },
+  kills: { type: Number, default: 0 },
+  deaths: { type: Number, default: 0 }
+});
+const Player = mongoose.model('Player', playerSchema);
 
-function saveDatabase(data) {
-  fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
-}
+// Connect securely to your Cloud DB Cluster
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('Connected securely to Cloud Leaderboard Database!'))
+  .catch(err => console.error('Database connection tracking failed:', err));
 
 function getRankInfo(mmr) {
   return RANK_ROLES.find(rank => mmr >= rank.minMmr) || RANK_ROLES[RANK_ROLES.length - 1];
@@ -124,7 +129,7 @@ client.once('ready', async () => {
       { body: commands }
     );
     console.log('Selectable slash commands successfully deployed!');
-    console.log('Uncheatable Arena Referee Bot is online with updated roles!');
+    console.log('Uncheatable Arena Referee Bot is online!');
   } catch (error) {
     console.error('Error deploying slash commands:', error);
   }
@@ -135,13 +140,11 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   const { commandName } = interaction;
-  const db = getDatabase();
 
   // Command: /stats
   if (commandName === 'stats') {
-    // If a target user option is selected, parse their profile. Otherwise, fall back to target self.
     const targetUser = interaction.options.getUser('user') || interaction.user;
-    const player = db[targetUser.id];
+    const player = await Player.findOne({ userId: targetUser.id });
     
     if (!player) {
       const errorMsg = targetUser.id === interaction.user.id 
@@ -164,11 +167,11 @@ client.on('interactionCreate', async (interaction) => {
 
   // Command: /leaderboard
   if (commandName === 'leaderboard') {
-    const sorted = Object.values(db).sort((a, b) => b.mmr - a.mmr);
+    const sorted = await Player.find({}).sort({ mmr: -1 }).limit(10);
     if (sorted.length === 0) return interaction.reply({ content: "The leaderboard is empty!", ephemeral: true });
     
     let text = `🥇 **Animal Company Arena Leaderboard** 🥇\n\n`;
-    sorted.slice(0, 10).forEach((p, i) => {
+    sorted.forEach((p, i) => {
       text += `${i + 1}. **${p.username}** — [${getRankInfo(p.mmr).name}] ${p.mmr.toFixed(0)} MMR\n`;
     });
     return interaction.reply({ content: text });
@@ -188,19 +191,20 @@ client.on('interactionCreate', async (interaction) => {
 
     if (amount <= 0) return interaction.reply({ content: "⚠️ Amount must be greater than 0.", ephemeral: true });
 
-    if (!db[targetUser.id]) {
-      db[targetUser.id] = { username: targetUser.username, mmr: 0, wins: 0, losses: 0, kills: 0, deaths: 0 };
+    let player = await Player.findOne({ userId: targetUser.id });
+    if (!player) {
+      player = new Player({ userId: targetUser.id, username: targetUser.username });
     }
-
-    db[targetUser.id].mmr += amount;
-    saveDatabase(db);
+    
+    player.mmr += amount;
+    await player.save();
 
     if (interaction.guild) {
       const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
-      await updatePlayerRole(interaction.guild, member, db[targetUser.id].mmr);
+      await updatePlayerRole(interaction.guild, member, player.mmr);
     }
 
-    return interaction.reply({ content: `✅ Successfully added **${amount} MMR** to **${targetUser.username}**! (New Total: ${db[targetUser.id].mmr.toFixed(2)})` });
+    return interaction.reply({ content: `✅ Successfully added **${amount} MMR** to **${targetUser.username}**! (New Total: ${player.mmr.toFixed(2)})` });
   }
 
   // Command: /removemmr
@@ -209,17 +213,19 @@ client.on('interactionCreate', async (interaction) => {
     const amount = interaction.options.getNumber('amount');
 
     if (amount <= 0) return interaction.reply({ content: "⚠️ Amount must be greater than 0.", ephemeral: true });
-    if (!db[targetUser.id]) return interaction.reply({ content: `❌ ${targetUser.username} has no recorded data.`, ephemeral: true });
+    
+    let player = await Player.findOne({ userId: targetUser.id });
+    if (!player) return interaction.reply({ content: `❌ ${targetUser.username} has no recorded data.`, ephemeral: true });
 
-    db[targetUser.id].mmr = Math.max(0, db[targetUser.id].mmr - amount);
-    saveDatabase(db);
+    player.mmr = Math.max(0, player.mmr - amount);
+    await player.save();
 
     if (interaction.guild) {
       const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
-      await updatePlayerRole(interaction.guild, member, db[targetUser.id].mmr);
+      await updatePlayerRole(interaction.guild, member, player.mmr);
     }
 
-    return interaction.reply({ content: `✅ Successfully removed **${amount} MMR** from **${targetUser.username}**! (New Total: ${db[targetUser.id].mmr.toFixed(2)})` });
+    return interaction.reply({ content: `✅ Successfully removed **${amount} MMR** from **${targetUser.username}**! (New Total: ${player.mmr.toFixed(2)})` });
   }
 
   // Command: /setmmr
@@ -229,24 +235,25 @@ client.on('interactionCreate', async (interaction) => {
 
     if (amount < 0) return interaction.reply({ content: "⚠️ MMR cannot be lower than 0.", ephemeral: true });
 
-    if (!db[targetUser.id]) {
-      db[targetUser.id] = { username: targetUser.username, mmr: 0, wins: 0, losses: 0, kills: 0, deaths: 0 };
+    let player = await Player.findOne({ userId: targetUser.id });
+    if (!player) {
+      player = new Player({ userId: targetUser.id, username: targetUser.username });
     }
 
-    db[targetUser.id].mmr = amount;
-    saveDatabase(db);
+    player.mmr = amount;
+    await player.save();
 
     if (interaction.guild) {
       const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
-      await updatePlayerRole(interaction.guild, member, db[targetUser.id].mmr);
+      await updatePlayerRole(interaction.guild, member, player.mmr);
     }
 
     return interaction.reply({ content: `🎯 Override successful! **${targetUser.username}** has been set to exactly **${amount} MMR** [${getRankInfo(amount).name}].` });
   }
 
-    // Command: /clearallmmr
+  // Command: /clearallmmr
   if (commandName === 'clearallmmr') {
-    saveDatabase({});
+    await Player.deleteMany({});
     return interaction.reply({ content: "🧹 **Leaderboard Wiped!** Ledger permanently cleared." });
   }
 });
@@ -330,35 +337,35 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.reply({ content: '❌ Error: Invalid numbers entry!', ephemeral: true });
     }
 
-    const db = getDatabase();
-    if (!db[playerId]) {
-      db[playerId] = { username: 'Player', mmr: 0, wins: 0, losses: 0, kills: 0, deaths: 0 };
+    let player = await Player.findOne({ userId: playerId });
+    if (!player) {
+      player = new Player({ userId: playerId });
     }
 
     const targetUser = await client.users.fetch(playerId).catch(() => null);
-    if (targetUser) db[playerId].username = targetUser.username;
+    if (targetUser) player.username = targetUser.username;
 
     let mmrChange = outcome === 'win' ? 5 : 0;
-    if (outcome === 'win') db[playerId].wins += 1; else db[playerId].losses += 1;
+    if (outcome === 'win') player.wins += 1; else player.losses += 1;
     
     mmrChange += (kills * 0.5) - (deaths * 0.25);
-    db[playerId].kills += kills;
-    db[playerId].deaths += deaths;
-    db[playerId].mmr = Math.max(0, db[playerId].mmr + mmrChange);
+    player.kills += kills;
+    player.deaths += deaths;
+    player.mmr = Math.max(0, player.mmr + mmrChange);
 
-    saveDatabase(db);
+    await player.save();
 
     let rankUpdateMessage = '';
     if (interaction.guild) {
       const member = await interaction.guild.members.fetch(playerId).catch(() => null);
-      const newRankAssigned = await updatePlayerRole(interaction.guild, member, db[playerId].mmr);
+      const newRankAssigned = await updatePlayerRole(interaction.guild, member, player.mmr);
       if (newRankAssigned) {
         rankUpdateMessage = `\n🆕 **Rank Changed:** Server role updated to **${newRankAssigned}**!`;
       }
     }
 
     await interaction.message.edit({ 
-      content: `🟩 **Match Approved & Logged by Staff:** ${interaction.user.username}\n👤 **Player:** ${db[playerId].username}\n📊 **Stats Applied:** ${outcome.toUpperCase()} (${kills} Kills / ${deaths} Deaths)\n⭐ **MMR Delta:** ${mmrChange >= 0 ? '+' : ''}${mmrChange.toFixed(2)} (Total: ${db[playerId].mmr.toFixed(2)})${rankUpdateMessage}`,
+      content: `🟩 **Match Approved & Logged by Staff:** ${interaction.user.username}\n👤 **Player:** ${player.username}\n📊 **Stats Applied:** ${outcome.toUpperCase()} (${kills} Kills / ${deaths} Deaths)\n⭐ **MMR Delta:** ${mmrChange >= 0 ? '+' : ''}${mmrChange.toFixed(2)} (Total: ${player.mmr.toFixed(2)})${rankUpdateMessage}`,
       components: [] 
     });
 
@@ -370,9 +377,9 @@ client.on('interactionCreate', async (interaction) => {
       if (originalMessage) {
         const reportCardText = `🏆 **Scoreboard Graded by Staff!**\n` +
           `• **Match Result:** ${outcome === 'win' ? '🟢 WIN' : '🔴 LOSS'}\n` +
-          `• **Stats:** ${kills} Kills (+${(kills * 0.5).toFixed(1)} MMR) | ${deaths} Deaths (-${(deaths * 0.25).toFixed(2)} MMR)\n` +
+          `• **Stats:** ${kills} Kills (+${(kills*0.5).toFixed(1)} MMR) | ${deaths} Deaths (-${(deaths*0.25).toFixed(2)} MMR)\n` +
           `• **MMR Delta:** ${mmrChange >= 0 ? '+' : ''}${mmrChange.toFixed(2)}\n` +
-          `• **Your New Total MMR:** ${db[playerId].mmr.toFixed(2)} [${getRankInfo(db[playerId].mmr).name}]${rankUpdateMessage}`;
+          `• **Your New Total MMR:** ${player.mmr.toFixed(2)} [${getRankInfo(player.mmr).name}]${rankUpdateMessage}`;
 
         await originalMessage.reply(reportCardText).catch(() => null);
         await originalMessage.reactions.removeAll().catch(() => null);
