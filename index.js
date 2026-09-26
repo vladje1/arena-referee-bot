@@ -8,7 +8,6 @@ const {
   ModalBuilder, 
   TextInputBuilder, 
   TextInputStyle,
-  PermissionFlagsBits,
   REST,
   Routes,
   SlashCommandBuilder
@@ -36,8 +35,7 @@ const REVIEW_CHANNEL_ID = '1553177031523700838'; // Private staff approval chann
 const STAFF_ROLE_ID = '1553324535128916070'; // Only players with this Role ID or Administrator can run admin commands
 // ----------------------------------
 
-// --- 📊 UPDATED COMPETITIVE RANK ROLES ---
-// Sorted strictly from highest minMmr to lowest minMmr for proper evaluation logic
+// --- 📊 COMPETITIVE RANK ROLES ---
 const RANK_ROLES = [
   { name: 'Sapphire', minMmr: 20000, id: '1553330980515741706' },
   { name: 'Ruby',     minMmr: 10000, id: '1553330712613093448' },
@@ -58,12 +56,10 @@ function saveDatabase(data) {
   fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 }
 
-// Helper to determine rank based on MMR
 function getRankInfo(mmr) {
   return RANK_ROLES.find(rank => mmr >= rank.minMmr) || RANK_ROLES[RANK_ROLES.length - 1];
 }
 
-// Function to update a player's role dynamically in the server
 async function updatePlayerRole(guild, member, currentMmr) {
   if (!member) return null;
   const targetRank = getRankInfo(currentMmr);
@@ -80,17 +76,17 @@ async function updatePlayerRole(guild, member, currentMmr) {
   return null;
 }
 
-// Helper function to check if a user is Staff or Admin
 function isStaff(member) {
   if (!member) return false;
   return member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID);
 }
 
-// --- 🚀 REGISTER & DEPLOY SELECTABLE SLASH COMMANDS ---
+// --- 🚀 DEPLOY SELECTABLE SLASH COMMANDS ---
 const commands = [
   new SlashCommandBuilder()
     .setName('stats')
-    .setDescription("View your current Arena match records, K/D ratio, and MMR rank."),
+    .setDescription("View an Arena match record dossier profile.")
+    .addUserOption(option => option.setName('user').setDescription('Select a player to view (leave blank for your own stats)').setRequired(false)),
     
   new SlashCommandBuilder()
     .setName('leaderboard')
@@ -124,7 +120,7 @@ client.once('ready', async () => {
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
     await rest.put(
-      Routes.applicationCommands(client.user.id),
+      Routes.applicationCommands(process.env.DISCORD_CLIENT_ID),
       { body: commands }
     );
     console.log('Selectable slash commands successfully deployed!');
@@ -143,15 +139,23 @@ client.on('interactionCreate', async (interaction) => {
 
   // Command: /stats
   if (commandName === 'stats') {
-    const player = db[interaction.user.id];
-    if (!player) return interaction.reply({ content: "❌ You haven't played any Arena matches yet!", ephemeral: true });
+    // If a target user option is selected, parse their profile. Otherwise, fall back to target self.
+    const targetUser = interaction.options.getUser('user') || interaction.user;
+    const player = db[targetUser.id];
+    
+    if (!player) {
+      const errorMsg = targetUser.id === interaction.user.id 
+        ? "❌ You haven't played any Arena matches yet!" 
+        : `❌ **${targetUser.username}** doesn't have any recorded Arena statistics yet.`;
+      return interaction.reply({ content: errorMsg, ephemeral: true });
+    }
 
     const totalGames = player.wins + player.losses;
     const winRate = totalGames > 0 ? ((player.wins / totalGames) * 100).toFixed(1) : 0;
     const kdRatio = player.deaths > 0 ? (player.kills / player.deaths).toFixed(2) : player.kills.toFixed(2);
     
     return interaction.reply({
-      content: `📊 **${interaction.user.username}'s Arena Dossier**\n` +
+      content: `📊 **${targetUser.username}'s Arena Dossier**\n` +
                `• Current Rank: **${getRankInfo(player.mmr).name}** (${player.mmr.toFixed(2)} MMR)\n` +
                `• K/D Ratio: **${kdRatio}** (${player.kills} Kills / ${player.deaths} Deaths)\n` +
                `• Win Rate: **${winRate}%** (${player.wins}W - ${player.losses}L)`
@@ -170,10 +174,10 @@ client.on('interactionCreate', async (interaction) => {
     return interaction.reply({ content: text });
   }
 
-  // --- 🛡️ SECURITY SHIELD: BLOCKS EXTRA MANAGEMENT PERMISSIONS FROM NORMAL PLAYERS ---
+  // Check management command permissions
   if (['addmmr', 'removemmr', 'setmmr', 'clearallmmr'].includes(commandName)) {
     if (!isStaff(interaction.member)) {
-      return interaction.reply({ content: "❌ Access Denied: This command is locked strictly to Staff members holding role ID 1553324535128916070.", ephemeral: true });
+      return interaction.reply({ content: "❌ Access Denied: Requires Staff status.", ephemeral: true });
     }
   }
 
@@ -240,14 +244,14 @@ client.on('interactionCreate', async (interaction) => {
     return interaction.reply({ content: `🎯 Override successful! **${targetUser.username}** has been set to exactly **${amount} MMR** [${getRankInfo(amount).name}].` });
   }
 
-  // Command: /clearallmmr
+    // Command: /clearallmmr
   if (commandName === 'clearallmmr') {
     saveDatabase({});
-    return interaction.reply({ content: "🧹 **Leaderboard Wiped!** All player stats and MMR values have been permanently cleared for the new season." });
+    return interaction.reply({ content: "🧹 **Leaderboard Wiped!** Ledger permanently cleared." });
   }
 });
 
-// --- 📸 LISTEN FOR SCREENSHOT UPLOADS ---
+// --- 📸 SCREENSHOT UPLOADS ---
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
@@ -284,7 +288,6 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (action === 'openform') {
-      // Security check for button clicks as well
       if (!isStaff(interaction.member)) {
         return interaction.reply({ content: "❌ You don't have the Staff role to grade matches.", ephemeral: true });
       }
@@ -324,7 +327,7 @@ client.on('interactionCreate', async (interaction) => {
     const deaths = parseInt(interaction.fields.getTextInputValue('modal_deaths'), 10);
 
     if (isNaN(kills) || isNaN(deaths) || kills < 0 || deaths < 0) {
-      return interaction.reply({ content: '❌ Error: You must enter valid numbers!', ephemeral: true });
+      return interaction.reply({ content: '❌ Error: Invalid numbers entry!', ephemeral: true });
     }
 
     const db = getDatabase();
