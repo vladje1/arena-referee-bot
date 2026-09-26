@@ -345,8 +345,9 @@ client.on('interactionCreate', async (interaction) => {
     const targetUser = await client.users.fetch(playerId).catch(() => null);
     if (targetUser) player.username = targetUser.username;
 
-          // --- ⚖️ BALANCED MULTIPLIER MATHEMATICS ---
-    let mmrChange = outcome === 'win' ? 7.5 : -15;
+              // --- ⚖️ BALANCED MULTIPLIER MATHEMATICS ---
+    // Updated Loss penalty: players now lose exactly 10 MMR on a Loss (Wins still give +7.5)
+    let mmrChange = outcome === 'win' ? 7.5 : -10;
     if (outcome === 'win') player.wins += 1; else player.losses += 1;
     
     // Force absolute number conversion to fix string addition bugs
