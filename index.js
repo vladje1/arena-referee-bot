@@ -107,7 +107,7 @@ async function analyzeScoreboardWithAI(imageUrl) {
             content: [
               {
                 type: "text",
-                text: "Look at the small watch screen in the center of this VR image. Read the numbers next to 'K' (kills) and 'D' (deaths). Check the health bar directly under HP: if mostly cyan/blue return outcome 'win', if mostly magenta/red return outcome 'loss'. Output ONLY raw JSON: {\"outcome\": \"win\", \"kills\": 0, \"deaths\": 0}"
+                text: "Analyze the small watch screen in the center of this VR screenshot step-by-step:\n1. KILLS (K): Read the top large number next to 'K' very carefully. Pay close attention to the second digit—do not confuse a '5' (flat top, open bottom) with a '6' (closed bottom loop). Example: '25'.\n2. DEATHS (D): Read the bottom small number next to 'D' or the skull icon. Do not double single digits (e.g., read '2', not '22').\n3. OUTCOME: Look at the HP number at the top of the watch. If HP is above 0 (e.g. 160 HP), the player survived so set outcome to 'win'. Only set outcome to 'loss' if HP is 0 or says DEAD.\n\nRespond strictly with raw JSON: {\"outcome\": \"win\", \"kills\": 25, \"deaths\": 2}"
               },
               {
                 type: "image_url",
