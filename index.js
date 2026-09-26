@@ -345,9 +345,11 @@ client.on('interactionCreate', async (interaction) => {
     const targetUser = await client.users.fetch(playerId).catch(() => null);
     if (targetUser) player.username = targetUser.username;
 
+       // --- ⚖️ BALANCED MULTIPLIER MATHEMATICS ---
     let mmrChange = outcome === 'win' ? 7.5 : -15;
     if (outcome === 'win') player.wins += 1; else player.losses += 1;
     
+    // Updated Kill multiplier: gives 0.20 MMR per kill
     mmrChange += (kills * 0.20) - (deaths * 0.25);
     player.kills += kills;
     player.deaths += deaths;
