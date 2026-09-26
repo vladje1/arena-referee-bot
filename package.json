@@ -7,8 +7,10 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.14.1",
-    "dotenv": "^16.4.5",
-    "mongoose": "^8.2.1"
+  "discord.js": "^14.14.1",
+  "dotenv": "^16.4.5",
+  "mongoose": "^8.2.1",
+  "sharp": "^0.33.2",
+  "tesseract.js": "^5.0.4"
   }
 }
