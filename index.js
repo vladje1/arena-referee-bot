@@ -89,7 +89,6 @@ function isStaff(member) {
 }
 
 // --- 🤖 VISION AI SCANNER FUNCTION (OpenRouter Free Tier) ---
-// --- 🤖 VISION AI SCANNER FUNCTION (OpenRouter Free Tier) ---
 async function analyzeScoreboardWithAI(imageUrl) {
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -101,7 +100,7 @@ async function analyzeScoreboardWithAI(imageUrl) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "meta-llama/llama-3.2-11b-vision-instruct:free",
+        model: "google/gemini-2.0-flash-lite-001:free",
         messages: [
           {
             role: "user",
@@ -122,7 +121,6 @@ async function analyzeScoreboardWithAI(imageUrl) {
 
     const data = await response.json();
     
-    // Safety check if OpenRouter returned an error object instead of choices
     if (!data || !data.choices || !data.choices[0] || !data.choices[0].message) {
       console.error("OpenRouter API Error Response:", data);
       return null;
