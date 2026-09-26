@@ -91,8 +91,12 @@ function isStaff(member) {
 // --- 🤖 VISION AI SCANNER FUNCTION ---
 async function analyzeScoreboardWithAI(imageUrl) {
   try {
-    const prompt = "Look closely at this VR scoreboard in the image. Identify if the player won or lost (win/loss based on cyan vs red bar on screen), count total kills, and count total deaths. Respond ONLY with raw JSON in this format: {\"outcome\": \"win\", \"kills\": 0, \"deaths\": 0}";
-    
+    const prompt = 
+      "Analyze the small watch screen in the center of this VR screenshot.\n" +
+      "1. Check the horizontal bar directly under HP: If the bar is mostly cyan/blue, outcome is 'win'. If it is mostly magenta/red, outcome is 'loss'.\n" +
+      "2. Look at the numbers next to 'K' (Kills) and 'D' (Deaths).\n" +
+      "Output ONLY a valid JSON object like this: {\"outcome\": \"win\", \"kills\": 25, \"deaths\": 2}";
+
     const response = await hf.chatCompletion({
       model: "Qwen/Qwen2-VL-7B-Instruct",
       messages: [
@@ -104,7 +108,8 @@ async function analyzeScoreboardWithAI(imageUrl) {
           ]
         }
       ],
-      max_tokens: 150
+      max_tokens: 100,
+      temperature: 0.1
     });
 
     const reply = response.choices[0].message.content;
