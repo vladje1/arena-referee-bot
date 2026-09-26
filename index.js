@@ -348,7 +348,7 @@ client.on('interactionCreate', async (interaction) => {
     let mmrChange = outcome === 'win' ? 7.5 : -15;
     if (outcome === 'win') player.wins += 1; else player.losses += 1;
     
-    mmrChange += (kills * 0.5) - (deaths * 0.25);
+    mmrChange += (kills * 0.20) - (deaths * 0.25);
     player.kills += kills;
     player.deaths += deaths;
     player.mmr = Math.max(0, player.mmr + mmrChange);
