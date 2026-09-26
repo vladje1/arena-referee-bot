@@ -345,7 +345,7 @@ client.on('interactionCreate', async (interaction) => {
     const targetUser = await client.users.fetch(playerId).catch(() => null);
     if (targetUser) player.username = targetUser.username;
 
-    let mmrChange = outcome === 'win' ? 5 : 0;
+    let mmrChange = outcome === 'win' ? 7.5 : -15;
     if (outcome === 'win') player.wins += 1; else player.losses += 1;
     
     mmrChange += (kills * 0.5) - (deaths * 0.25);
