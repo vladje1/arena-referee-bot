@@ -13,6 +13,9 @@ const {
   SlashCommandBuilder
 } = require('discord.js');
 const mongoose = require('mongoose');
+const { InferenceClient } = require('@huggingface/inference');
+
+const hf = new InferenceClient(process.env.HF_TOKEN);
 
 const client = new Client({
   intents: [
@@ -85,6 +88,37 @@ function isStaff(member) {
   return member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID);
 }
 
+// --- 🤖 VISION AI SCANNER FUNCTION ---
+async function analyzeScoreboardWithAI(imageUrl) {
+  try {
+    const prompt = "Look closely at this VR scoreboard in the image. Identify if the player won or lost (win/loss based on cyan vs red bar on screen), count total kills, and count total deaths. Respond ONLY with raw JSON in this format: {\"outcome\": \"win\", \"kills\": 0, \"deaths\": 0}";
+    
+    const response = await hf.chatCompletion({
+      model: "Qwen/Qwen2-VL-7B-Instruct",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: imageUrl } }
+          ]
+        }
+      ],
+      max_tokens: 150
+    });
+
+    const reply = response.choices[0].message.content;
+    const jsonMatch = reply.match(/\{[\s\S]*?\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    return null;
+  } catch (err) {
+    console.error("AI Vision Scanning Error:", err);
+    return null;
+  }
+}
+
 // --- 🚀 DEPLOY SELECTABLE SLASH COMMANDS ---
 const commands = [
   new SlashCommandBuilder()
@@ -120,14 +154,14 @@ const commands = [
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
-  console.log('Deploying selectable slash commands to Discord...');
+  console.log('Deploying commands to Discord...');
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
     await rest.put(
       Routes.applicationCommands(process.env.DISCORD_CLIENT_ID),
       { body: commands }
     );
-    console.log('Uncheatable Arena Referee Bot is online!');
+    console.log('Uncheatable Arena Referee Bot is online with Vision AI!');
   } catch (error) {
     console.error('Error deploying slash commands:', error);
   }
@@ -235,7 +269,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-// --- 📸 SCREENSHOT UPLOADS ---
+// --- 📸 AUTOMATED SCREENSHOT PROCESSOR ---
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
@@ -243,25 +277,75 @@ client.on('messageCreate', async (message) => {
     const attachment = message.attachments.first();
     if (!attachment.contentType?.startsWith('image/')) return;
 
+    await message.react('🔍').catch(() => null);
+
+    const aiResult = await analyzeScoreboardWithAI(attachment.url);
+
     const reviewChannel = await client.channels.fetch(REVIEW_CHANNEL_ID).catch(() => null);
-    if (!reviewChannel) return;
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`openform_win_${message.author.id}`).setLabel('🏆 Enter Stats (WIN)').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`openform_loss_${message.author.id}`).setLabel('💀 Enter Stats (LOSS)').setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId(`deny_match_${message.author.id}`).setLabel('❌ Reject Image').setStyle(ButtonStyle.Secondary)
-    );
+    if (!aiResult) {
+      if (reviewChannel) {
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`openform_win_${message.author.id}`).setLabel('🏆 Enter Stats (WIN)').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId(`openform_loss_${message.author.id}`).setLabel('💀 Enter Stats (LOSS)').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId(`deny_match_${message.author.id}`).setLabel('❌ Reject Image').setStyle(ButtonStyle.Secondary)
+        );
+        await reviewChannel.send({
+          content: `⚠️ **AI Vision could not process image clearly.**\n👤 **Player:** <@${message.author.id}>\n🔗 **Proof:** ${attachment.url}`,
+          components: [row]
+        });
+      }
+      await message.reactions.removeAll().catch(() => null);
+      await message.react('❓').catch(() => null);
+      return;
+    }
 
-    await reviewChannel.send({
-      content: `🚨 **New Match Scoreboard Submitted**\n👤 **Player:** <@${message.author.id}> (${message.author.username})\n🔗 **Uploaded Proof:** ${attachment.url}`,
-      components: [row]
-    });
+    const { outcome, kills, deaths } = aiResult;
+    const cleanKills = parseInt(kills, 10) || 0;
+    const cleanDeaths = parseInt(deaths, 10) || 0;
+    const cleanOutcome = outcome?.toLowerCase() === 'win' ? 'win' : 'loss';
 
-    await message.react('📥').catch(() => null);
+    let player = await Player.findOne({ userId: message.author.id }) || new Player({ userId: message.author.id, username: message.author.username });
+    
+    let mmrChange = cleanOutcome === 'win' ? 7.5 : -10;
+    if (cleanOutcome === 'win') player.wins += 1; else player.losses += 1;
+
+    mmrChange += (cleanKills * 0.20);
+    mmrChange -= (cleanDeaths * 0.25);
+
+    player.kills += cleanKills;
+    player.deaths += cleanDeaths;
+    player.mmr = Math.max(0, player.mmr + mmrChange);
+    await player.save();
+
+    let rankUpdateMessage = '';
+    if (message.guild) {
+      const member = await message.guild.members.fetch(message.author.id).catch(() => null);
+      const newRankAssigned = await updatePlayerRole(message.guild, member, player.mmr);
+      if (newRankAssigned) {
+        rankUpdateMessage = `\n🆕 **Rank Up:** Server role updated to **${newRankAssigned}**!`;
+      }
+    }
+
+    const reportCardText = `🤖 **Auto-Graded via Vision AI!**\n` +
+      `• **Match Result:** ${cleanOutcome === 'win' ? '🟢 WIN' : '🔴 LOSS'}\n` +
+      `• **Stats Detected:** ${cleanKills} Kills (+${(cleanKills*0.20).toFixed(1)} MMR) | ${cleanDeaths} Deaths (-${(cleanDeaths*0.25).toFixed(2)} MMR)\n` +
+      `• **MMR Delta:** ${mmrChange >= 0 ? '+' : ''}${mmrChange.toFixed(2)}\n` +
+      `• **New Total MMR:** ${player.mmr.toFixed(2)} [${getRankInfo(player.mmr).name}]${rankUpdateMessage}`;
+
+    await message.reply(reportCardText).catch(() => null);
+    await message.reactions.removeAll().catch(() => null);
+    await message.react('✅').catch(() => null);
+
+    if (reviewChannel) {
+      await reviewChannel.send({
+        content: `⚡ **Match Auto-Processed by Vision AI**\n👤 **Player:** <@${message.author.id}>\n📊 **Logged:** ${cleanOutcome.toUpperCase()} (${cleanKills}K / ${cleanDeaths}D) | ${mmrChange >= 0 ? '+' : ''}${mmrChange.toFixed(2)} MMR`
+      });
+    }
   }
 });
 
-// --- 🎛️ BUTTONS & MODAL COMPONENT HANDLING ---
+// --- 🎛️ BACKUP BUTTONS & MODAL HANDLER FOR MANUAL OVERRIDES ---
 client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) {
     const [action, outcome, playerId] = interaction.customId.split('_');
