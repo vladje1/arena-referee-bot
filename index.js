@@ -34,7 +34,7 @@ const STAFF_ROLE_ID = '1553324535128916070'; // Staff Role ID
 
 // --- 📊 COMPETITIVE RANK ROLES ---
 const RANK_ROLES = [
-  { name: 'Sapphire', minMmr: 20000, id: '1553330980515741706' },
+  { name: 'Champion', minMmr: 20000, id: '1553330980515741706' },
   { name: 'Ruby',     minMmr: 10000, id: '1553330712613093448' },
   { name: 'Emerald',  minMmr: 5000,  id: '1553330578298773534' },
   { name: 'Diamond',  minMmr: 1000,  id: '1553330139578769499' },
