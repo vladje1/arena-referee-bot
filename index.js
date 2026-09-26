@@ -28,12 +28,12 @@ const client = new Client({
 });
 
 // --- ⚙️ AUTOMATED CHANNELS CONFIGURATION ---
-const UPLOAD_CHANNEL_ID = '1553172302420643950'; // Player screenshot upload channel
-const REVIEW_CHANNEL_ID = '1553177031523700838'; // Private staff approval channel
+const UPLOAD_CHANNEL_ID = '1553172302420643950'; 
+const REVIEW_CHANNEL_ID = '1553177031523700838'; 
 // -------------------------------------------
 
 // --- 🛡️ ROLE SECURITY SETTINGS ---
-const STAFF_ROLE_ID = '1553324535128916070'; // Staff Role ID
+const STAFF_ROLE_ID = '1553324535128916070'; 
 // ----------------------------------
 
 // --- 📊 COMPETITIVE RANK ROLES ---
@@ -60,7 +60,6 @@ const playerSchema = new mongoose.Schema({
 });
 const Player = mongoose.model('Player', playerSchema);
 
-// Connect securely to Cloud DB Cluster
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('Connected securely to Cloud Leaderboard Database!'))
   .catch(err => console.error('Database connection tracking failed:', err));
@@ -72,7 +71,6 @@ async function analyzeScoreboard(imageUrl) {
     const arrayBuffer = await response.arrayBuffer();
     const imageBuffer = Buffer.from(arrayBuffer);
 
-    // 1. Analyze Red vs Blue pixel counts
     const { data, info } = await sharp(imageBuffer)
       .raw()
       .toBuffer({ resolveWithObject: true });
@@ -91,7 +89,6 @@ async function analyzeScoreboard(imageUrl) {
 
     const detectedOutcome = bluePixels > redPixels ? 'win' : 'loss';
 
-    // 2. OCR process for digital clock font
     const processedBuffer = await sharp(imageBuffer)
       .grayscale()
       .threshold(160)
@@ -143,12 +140,36 @@ function isStaff(member) {
 
 // --- 🚀 DEPLOY SELECTABLE SLASH COMMANDS ---
 const commands = [
-  new SlashCommandBuilder().setName('stats').setDescription("View an Arena match record dossier profile.").addUserOption(option => option.setName('user').setDescription('Select a player').setRequired(false)),
-  new SlashCommandBuilder().setName('leaderboard').setDescription("Display top 10 standings."),
-  new SlashCommandBuilder().setName('addmmr').setDescription("⛔ Staff Only: Add MMR.").addUserOption(option => option.setName('player').setRequired(true)).addNumberOption(option => option.setName('amount').setRequired(true)),
-  new SlashCommandBuilder().setName('removemmr').setDescription("⛔ Staff Only: Deduct MMR.").addUserOption(option => option.setName('player').setRequired(true)).addNumberOption(option => option.setName('amount').setRequired(true)),
-  new SlashCommandBuilder().setName('setmmr').setDescription("⛔ Staff Only: Override MMR.").addUserOption(option => option.setName('player').setRequired(true)).addNumberOption(option => option.setName('amount').setRequired(true)),
-  new SlashCommandBuilder().setName('clearallmmr').setDescription("⛔ Staff Only: Wipe database.")
+  new SlashCommandBuilder()
+    .setName('stats')
+    .setDescription("View an Arena match record dossier profile.")
+    .addUserOption(option => option.setName('user').setDescription('Select a player to view').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('leaderboard')
+    .setDescription("Display top 10 standings."),
+
+  new SlashCommandBuilder()
+    .setName('addmmr')
+    .setDescription("⛔ Staff Only: Add MMR.")
+    .addUserOption(option => option.setName('player').setDescription('Target player').setRequired(true))
+    .addNumberOption(option => option.setName('amount').setDescription('MMR amount to add').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('removemmr')
+    .setDescription("⛔ Staff Only: Deduct MMR.")
+    .addUserOption(option => option.setName('player').setDescription('Target player').setRequired(true))
+    .addNumberOption(option => option.setName('amount').setDescription('MMR amount to deduct').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('setmmr')
+    .setDescription("⛔ Staff Only: Override MMR.")
+    .addUserOption(option => option.setName('player').setDescription('Target player').setRequired(true))
+    .addNumberOption(option => option.setName('amount').setDescription('Exact MMR value').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('clearallmmr')
+    .setDescription("⛔ Staff Only: Wipe database.")
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
@@ -280,7 +301,6 @@ client.on('messageCreate', async (message) => {
 
     await message.react('🔍').catch(() => null);
 
-    // Auto-scan using image analysis function
     const scanned = await analyzeScoreboard(attachment.url);
 
     const scannedText = scanned 
@@ -401,7 +421,6 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-// Fake web server to bypass Render port scan timeout
 const http = require('http');
 http.createServer((req, res) => res.end('Bot is active!')).listen(process.env.PORT || 3000);
 client.login(process.env.DISCORD_TOKEN);
