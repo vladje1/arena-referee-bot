@@ -89,12 +89,15 @@ function isStaff(member) {
 }
 
 // --- 🤖 VISION AI SCANNER FUNCTION (OpenRouter Free Tier) ---
+// --- 🤖 VISION AI SCANNER FUNCTION (OpenRouter Free Tier) ---
 async function analyzeScoreboardWithAI(imageUrl) {
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "HTTP-Referer": "https://render.com",
+        "X-Title": "Arena Ranked Bot",
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
@@ -105,7 +108,7 @@ async function analyzeScoreboardWithAI(imageUrl) {
             content: [
               {
                 type: "text",
-                text: "Look at the small watch screen in the center of this VR image. Read the numbers next to 'K' (kills) and 'D' (deaths). Check the health bar directly under HP: if mostly cyan/blue return outcome 'win', if mostly magenta/red return outcome 'loss'. Respond ONLY with valid JSON in this exact format: {\"outcome\": \"win\", \"kills\": 25, \"deaths\": 2}"
+                text: "Look at the small watch screen in the center of this VR image. Read the numbers next to 'K' (kills) and 'D' (deaths). Check the health bar directly under HP: if mostly cyan/blue return outcome 'win', if mostly magenta/red return outcome 'loss'. Respond ONLY with valid JSON in this exact format: {\"outcome\": \"win\", \"kills\": 68, \"deaths\": 3}"
               },
               {
                 type: "image_url",
@@ -118,6 +121,13 @@ async function analyzeScoreboardWithAI(imageUrl) {
     });
 
     const data = await response.json();
+    
+    // Safety check if OpenRouter returned an error object instead of choices
+    if (!data || !data.choices || !data.choices[0] || !data.choices[0].message) {
+      console.error("OpenRouter API Error Response:", data);
+      return null;
+    }
+
     const reply = data.choices[0].message.content;
     const jsonMatch = reply.match(/\{[\s\S]*?\}/);
     
