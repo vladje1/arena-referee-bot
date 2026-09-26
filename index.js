@@ -88,59 +88,55 @@ function isStaff(member) {
   return member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID);
 }
 
-// --- 🤖 VISION AI SCANNER FUNCTION (OpenRouter Fallback Array) ---
+// --- 🤖 VISION AI SCANNER FUNCTION (OpenRouter Auto Free Router) ---
 async function analyzeScoreboardWithAI(imageUrl) {
-  // List of active free vision models on OpenRouter
-  const freeVisionModels = [
-    "google/gemini-2.0-flash-exp:free",
-    "meta-llama/llama-3.2-11b-vision-instruct:free",
-    "google/gemini-flash-1.5-8b:free"
-  ];
+  try {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "HTTP-Referer": "https://render.com",
+        "X-Title": "Arena Ranked Bot",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "openrouter/free",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Look at the small watch screen in the center of this VR image. Read the numbers next to 'K' (kills) and 'D' (deaths). Check the health bar directly under HP: if mostly cyan/blue return outcome 'win', if mostly magenta/red return outcome 'loss'. Output ONLY raw JSON: {\"outcome\": \"win\", \"kills\": 0, \"deaths\": 0}"
+              },
+              {
+                type: "image_url",
+                image_url: { url: imageUrl }
+              }
+            ]
+          }
+        ]
+      })
+    });
 
-  const promptText = "Look at the small watch screen in the center of this VR image. Read the numbers next to 'K' (kills) and 'D' (deaths). Check the health bar directly under HP: if mostly cyan/blue return outcome 'win', if mostly magenta/red return outcome 'loss'. Output ONLY raw JSON: {\"outcome\": \"win\", \"kills\": 0, \"deaths\": 0}";
-
-  for (const modelId of freeVisionModels) {
-    try {
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          "HTTP-Referer": "https://render.com",
-          "X-Title": "Arena Ranked Bot",
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: modelId,
-          messages: [
-            {
-              role: "user",
-              content: [
-                { type: "text", text: promptText },
-                { type: "image_url", image_url: { url: imageUrl } }
-              ]
-            }
-          ]
-        })
-      });
-
-      const data = await response.json();
-      
-      if (data && data.choices && data.choices[0] && data.choices[0].message) {
-        const reply = data.choices[0].message.content;
-        const jsonMatch = reply.match(/\{[\s\S]*?\}/);
-        if (jsonMatch) {
-          console.log(`Success using model: ${modelId}`);
-          return JSON.parse(jsonMatch[0]);
-        }
-      } else {
-        console.warn(`Model ${modelId} failed, trying next... Reason:`, data?.error?.message || "Invalid structure");
-      }
-    } catch (err) {
-      console.error(`Error attempting ${modelId}:`, err);
+    const data = await response.json();
+    
+    if (!data || !data.choices || !data.choices[0] || !data.choices[0].message) {
+      console.error("OpenRouter API Error Response:", data);
+      return null;
     }
-  }
 
-  return null;
+    const reply = data.choices[0].message.content;
+    const jsonMatch = reply.match(/\{[\s\S]*?\}/);
+    
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    return null;
+  } catch (err) {
+    console.error("AI Vision Scanning Error:", err);
+    return null;
+  }
 }
 
 // --- 🚀 DEPLOY SELECTABLE SLASH COMMANDS ---
