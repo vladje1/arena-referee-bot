@@ -71,7 +71,20 @@ async function analyzeScoreboard(imageUrl) {
     const arrayBuffer = await response.arrayBuffer();
     const imageBuffer = Buffer.from(arrayBuffer);
 
-    const { data, info } = await sharp(imageBuffer)
+    // Get image dimensions
+    const metadata = await sharp(imageBuffer).metadata();
+    
+    // Scan middle section of the image where the watch display sits
+    const croppedBuffer = await sharp(imageBuffer)
+      .extract({ 
+        left: Math.floor(metadata.width * 0.3), 
+        top: Math.floor(metadata.height * 0.3), 
+        width: Math.floor(metadata.width * 0.4), 
+        height: Math.floor(metadata.height * 0.4) 
+      })
+      .toBuffer();
+
+    const { data, info } = await sharp(croppedBuffer)
       .raw()
       .toBuffer({ resolveWithObject: true });
 
@@ -83,15 +96,18 @@ async function analyzeScoreboard(imageUrl) {
       const g = data[i + 1];
       const b = data[i + 2];
 
-      if (r > 160 && g < 60 && b < 60) redPixels++;
-      if (b > 160 && r < 60) bluePixels++;
+      // Cyan / Blue bar detection on watch screen
+      if (b > 130 && g > 100 && r < 100) bluePixels++;
+      // Magenta / Red bar detection on watch screen
+      if (r > 130 && b > 100 && g < 100) redPixels++;
     }
 
-    const detectedOutcome = bluePixels > redPixels ? 'win' : 'loss';
+    // Determine outcome based on remaining color bar length
+    const detectedOutcome = redPixels > bluePixels ? 'win' : 'loss';
 
     const processedBuffer = await sharp(imageBuffer)
       .grayscale()
-      .threshold(160)
+      .threshold(150)
       .toBuffer();
 
     const { data: { text } } = await Tesseract.recognize(processedBuffer, 'eng', {
