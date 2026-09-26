@@ -381,4 +381,8 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
+// Fake web server to bypass Render port scan timeout
+const http = require('http');
+http.createServer((req, res) => res.end('Bot is active!')).listen(process.env.PORT || 3000);
+
 client.login(process.env.DISCORD_TOKEN);
