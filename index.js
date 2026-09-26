@@ -88,32 +88,39 @@ function isStaff(member) {
   return member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID);
 }
 
-// --- 🤖 VISION AI SCANNER FUNCTION ---
+// --- 🤖 VISION AI SCANNER FUNCTION (OpenRouter Free Tier) ---
 async function analyzeScoreboardWithAI(imageUrl) {
   try {
-    const prompt = 
-      "Analyze the small watch screen in the center of this VR screenshot.\n" +
-      "1. Check the horizontal bar directly under HP: If the bar is mostly cyan/blue, outcome is 'win'. If it is mostly magenta/red, outcome is 'loss'.\n" +
-      "2. Look at the numbers next to 'K' (Kills) and 'D' (Deaths).\n" +
-      "Output ONLY a valid JSON object like this: {\"outcome\": \"win\", \"kills\": 25, \"deaths\": 2}";
-
-    const response = await hf.chatCompletion({
-      model: "Qwen/Qwen2-VL-7B-Instruct",
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: prompt },
-            { type: "image_url", image_url: { url: imageUrl } }
-          ]
-        }
-      ],
-      max_tokens: 100,
-      temperature: 0.1
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "meta-llama/llama-3.2-11b-vision-instruct:free",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Look at the small watch screen in the center of this VR image. Read the numbers next to 'K' (kills) and 'D' (deaths). Check the health bar directly under HP: if mostly cyan/blue return outcome 'win', if mostly magenta/red return outcome 'loss'. Respond ONLY with valid JSON in this exact format: {\"outcome\": \"win\", \"kills\": 25, \"deaths\": 2}"
+              },
+              {
+                type: "image_url",
+                image_url: { url: imageUrl }
+              }
+            ]
+          }
+        ]
+      })
     });
 
-    const reply = response.choices[0].message.content;
+    const data = await response.json();
+    const reply = data.choices[0].message.content;
     const jsonMatch = reply.match(/\{[\s\S]*?\}/);
+    
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]);
     }
