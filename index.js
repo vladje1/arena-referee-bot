@@ -14,10 +14,6 @@ const {
 } = require('discord.js');
 const mongoose = require('mongoose');
 
-// Image processing modules for Auto-Grading
-const Tesseract = require('tesseract.js');
-const sharp = require('sharp');
-
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -63,71 +59,6 @@ const Player = mongoose.model('Player', playerSchema);
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('Connected securely to Cloud Leaderboard Database!'))
   .catch(err => console.error('Database connection tracking failed:', err));
-
-// --- 🤖 AI IMAGE AUTO-SCANNER FUNCTION ---
-async function analyzeScoreboard(imageUrl) {
-  try {
-    const response = await fetch(imageUrl);
-    const arrayBuffer = await response.arrayBuffer();
-    const imageBuffer = Buffer.from(arrayBuffer);
-
-    // Get image dimensions
-    const metadata = await sharp(imageBuffer).metadata();
-    
-    // Scan middle section of the image where the watch display sits
-    const croppedBuffer = await sharp(imageBuffer)
-      .extract({ 
-        left: Math.floor(metadata.width * 0.3), 
-        top: Math.floor(metadata.height * 0.3), 
-        width: Math.floor(metadata.width * 0.4), 
-        height: Math.floor(metadata.height * 0.4) 
-      })
-      .toBuffer();
-
-    const { data, info } = await sharp(croppedBuffer)
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-
-    let redPixels = 0;
-    let bluePixels = 0;
-
-    for (let i = 0; i < data.length; i += info.channels) {
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-
-      // Cyan / Blue bar detection on watch screen
-      if (b > 130 && g > 100 && r < 100) bluePixels++;
-      // Magenta / Red bar detection on watch screen
-      if (r > 130 && b > 100 && g < 100) redPixels++;
-    }
-
-    // Determine outcome based on remaining color bar length
-    const detectedOutcome = redPixels > bluePixels ? 'win' : 'loss';
-
-    const processedBuffer = await sharp(imageBuffer)
-      .grayscale()
-      .threshold(150)
-      .toBuffer();
-
-    const { data: { text } } = await Tesseract.recognize(processedBuffer, 'eng', {
-      tessedit_char_whitelist: '0123456789'
-    });
-
-    const parsedNumbers = text.match(/\d+/g) || [];
-    const detectedKills = parsedNumbers[0] ? parseInt(parsedNumbers[0], 10) : 0;
-    const detectedDeaths = parsedNumbers[1] ? parseInt(parsedNumbers[1], 10) : 0;
-
-    return {
-      outcome: detectedOutcome,
-      kills: detectedKills,
-      deaths: detectedDeaths
-    };
-  } catch (error) {
-    console.error('Auto-grade scan error:', error);
-    return null;
-  }
-}
 
 function getRankInfo(mmr) {
   return RANK_ROLES.find(rank => mmr >= rank.minMmr) || RANK_ROLES[RANK_ROLES.length - 1];
@@ -304,7 +235,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-// --- 📸 SCREENSHOT UPLOADS WITH AUTO-SCAN ---
+// --- 📸 SCREENSHOT UPLOADS ---
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
@@ -315,14 +246,6 @@ client.on('messageCreate', async (message) => {
     const reviewChannel = await client.channels.fetch(REVIEW_CHANNEL_ID).catch(() => null);
     if (!reviewChannel) return;
 
-    await message.react('🔍').catch(() => null);
-
-    const scanned = await analyzeScoreboard(attachment.url);
-
-    const scannedText = scanned 
-      ? `\n🤖 **AI Auto-Scan:** Detected **${scanned.outcome.toUpperCase()}** (${scanned.kills} Kills / ${scanned.deaths} Deaths)`
-      : `\n⚠️ **AI Auto-Scan:** Could not parse numbers cleanly. Manual input required.`;
-
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`openform_win_${message.author.id}`).setLabel('🏆 Enter Stats (WIN)').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId(`openform_loss_${message.author.id}`).setLabel('💀 Enter Stats (LOSS)').setStyle(ButtonStyle.Danger),
@@ -330,11 +253,10 @@ client.on('messageCreate', async (message) => {
     );
 
     await reviewChannel.send({
-      content: `🚨 **New Match Scoreboard Submitted**\n👤 **Player:** <@${message.author.id}> (${message.author.username})${scannedText}\n🔗 **Uploaded Proof:** ${attachment.url}`,
+      content: `🚨 **New Match Scoreboard Submitted**\n👤 **Player:** <@${message.author.id}> (${message.author.username})\n🔗 **Uploaded Proof:** ${attachment.url}`,
       components: [row]
     });
 
-    await message.reactions.removeAll().catch(() => null);
     await message.react('📥').catch(() => null);
   }
 });
