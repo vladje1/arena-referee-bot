@@ -100,14 +100,14 @@ async function analyzeScoreboardWithAI(imageUrl) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "google/gemini-2.0-flash-lite-001:free",
+        model: "google/gemini-2.0-flash-lite-preview-02-05:free",
         messages: [
           {
             role: "user",
             content: [
               {
                 type: "text",
-                text: "Look at the small watch screen in the center of this VR image. Read the numbers next to 'K' (kills) and 'D' (deaths). Check the health bar directly under HP: if mostly cyan/blue return outcome 'win', if mostly magenta/red return outcome 'loss'. Respond ONLY with valid JSON in this exact format: {\"outcome\": \"win\", \"kills\": 68, \"deaths\": 3}"
+                text: "Look at the small watch screen in the center of this VR image. Read the numbers next to 'K' (kills) and 'D' (deaths). Check the health bar directly under HP: if mostly cyan/blue return outcome 'win', if mostly magenta/red return outcome 'loss'. Output ONLY raw JSON: {\"outcome\": \"win\", \"kills\": 0, \"deaths\": 0}"
               },
               {
                 type: "image_url",
