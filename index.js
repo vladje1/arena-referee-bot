@@ -25,7 +25,7 @@ const client = new Client({
   ]
 });
 
-const DB_PATH = path.join(__dirname, 'database.json');
+const DB_PATH = process.env.RENDER ? '/tmp/database.json' : path.join(__dirname, 'database.json');
 
 // --- ⚙️ AUTOMATED CHANNELS CONFIGURATION ---
 const UPLOAD_CHANNEL_ID = '1553172302420643950'; // Player screenshot upload channel
