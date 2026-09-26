@@ -88,55 +88,10 @@ function isStaff(member) {
   return member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID);
 }
 
-// --- 🤖 VISION AI SCANNER FUNCTION (OpenRouter Auto Free Router) ---
+// --- 🤖 VISION AI SCANNER FUNCTION (Disabled / Manual Review Mode) ---
 async function analyzeScoreboardWithAI(imageUrl) {
-  try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        "HTTP-Referer": "https://render.com",
-        "X-Title": "Arena Ranked Bot",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "openrouter/free",
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "Analyze the small watch screen in the center of this VR screenshot step-by-step:\n1. KILLS (K): Read the top large number next to 'K' very carefully. Pay close attention to the second digit—do not confuse a '5' (flat top, open bottom) with a '6' (closed bottom loop). Example: '25'.\n2. DEATHS (D): Read the bottom small number next to 'D' or the skull icon. Do not double single digits (e.g., read '2', not '22').\n3. OUTCOME: Look at the HP number at the top of the watch. If HP is above 0 (e.g. 160 HP), the player survived so set outcome to 'win'. Only set outcome to 'loss' if HP is 0 or says DEAD.\n\nRespond strictly with raw JSON: {\"outcome\": \"win\", \"kills\": 25, \"deaths\": 2}"
-              },
-              {
-                type: "image_url",
-                image_url: { url: imageUrl }
-              }
-            ]
-          }
-        ]
-      })
-    });
-
-    const data = await response.json();
-    
-    if (!data || !data.choices || !data.choices[0] || !data.choices[0].message) {
-      console.error("OpenRouter API Error Response:", data);
-      return null;
-    }
-
-    const reply = data.choices[0].message.content;
-    const jsonMatch = reply.match(/\{[\s\S]*?\}/);
-    
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
-    return null;
-  } catch (err) {
-    console.error("AI Vision Scanning Error:", err);
-    return null;
-  }
+  // Returns null so all uploads fall back directly to Manual Review buttons
+  return null;
 }
 
 // --- 🚀 DEPLOY SELECTABLE SLASH COMMANDS ---
