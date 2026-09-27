@@ -91,7 +91,7 @@ function isStaff(member) {
   return member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID);
 }
 
-// --- 🚀 GOOGLE GEMINI VISION SCANNER ---
+// --- 🚀 GOOGLE GEMINI VISION SCANNER (FAST MODE) ---
 async function analyzeScoreboardWithAI(imageUrl, retries = 3) {
   try {
     console.log("🔍 Fetching image for Gemini Vision processing...");
@@ -106,10 +106,8 @@ async function analyzeScoreboardWithAI(imageUrl, retries = 3) {
     const base64Data = Buffer.from(arrayBuffer).toString('base64');
     const mimeType = imageResp.headers.get('content-type') || 'image/png';
 
-    const prompt = `Look closely at the digital wrist watch in this VR game screenshot.
-1. Read the HP value displayed at the top next to "HP" (e.g., 160 or 200). If HP is greater than 0, set outcome to "win", otherwise "loss".
-2. Read the digital 7-segment number displayed next to "K" for Kills.
-3. Read the digital 7-segment number displayed next to "D" for Deaths.`;
+    // Streamlined prompt to speed up output execution
+    const prompt = `VR watch screenshot: 1) HP>0="win", else "loss". 2) K=kills. 3) D=deaths. Output JSON only.`;
 
     const model = genAI.getGenerativeModel({
       model: "gemini-3.8-flash",
@@ -118,9 +116,9 @@ async function analyzeScoreboardWithAI(imageUrl, retries = 3) {
         responseSchema: {
           type: SchemaType.OBJECT,
           properties: {
-            outcome: { type: SchemaType.STRING, description: "Must be 'win' or 'loss'" },
-            kills: { type: SchemaType.INTEGER, description: "Number of kills" },
-            deaths: { type: SchemaType.INTEGER, description: "Number of deaths" }
+            outcome: { type: SchemaType.STRING, description: "'win' or 'loss'" },
+            kills: { type: SchemaType.INTEGER },
+            deaths: { type: SchemaType.INTEGER }
           },
           required: ["outcome", "kills", "deaths"]
         }
@@ -157,15 +155,15 @@ async function analyzeScoreboardWithAI(imageUrl, retries = 3) {
   } catch (err) {
     console.error("❌ Gemini API Error Details:", err);
 
-    // Handles 503 Service Unavailable, 429 Rate Limit, and Quota errors with automatic retries
+    // Speed-optimized retry: waits 1 second instead of 3
     if (retries > 0 && (
       err.message?.includes('503') || 
       err.message?.includes('429') || 
       err.message?.includes('Quota') || 
       err.message?.includes('ResourceExhausted')
     )) {
-      console.log(`⏳ Server busy or rate limited. Retrying in 3 seconds... (${retries} retries left)`);
-      await new Promise(res => setTimeout(res, 3000));
+      console.log(`⏳ Server busy/limited. Retrying in 1s... (${retries} left)`);
+      await new Promise(res => setTimeout(res, 1000));
       return analyzeScoreboardWithAI(imageUrl, retries - 1);
     }
 
@@ -400,6 +398,7 @@ client.on('messageCreate', async (message) => {
   const attachment = message.attachments.first();
   if (!attachment || !attachment.contentType?.startsWith('image/')) return;
 
+  await message.channel.sendTyping().catch(() => null);
   const processingEmoji = await message.react('⏳').catch(() => null);
 
   const [reviewChannel, aiResult] = await Promise.all([
