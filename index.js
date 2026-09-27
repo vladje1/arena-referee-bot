@@ -88,59 +88,46 @@ function isStaff(member) {
   return member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID);
 }
 
-// --- 🤖 VISION AI SCANNER FUNCTION (Disabled / Manual Review Mode) ---
 async function analyzeScoreboardWithAI(imageUrl) {
-  // Returns null so all uploads fall back directly to Manual Review buttons
-  return null;
-}
-
-// --- 🚀 DEPLOY SELECTABLE SLASH COMMANDS ---
-const commands = [
-  new SlashCommandBuilder()
-    .setName('stats')
-    .setDescription("View an Arena match record dossier profile.")
-    .addUserOption(option => option.setName('user').setDescription('Select a player to view').setRequired(false)),
-
-  new SlashCommandBuilder()
-    .setName('leaderboard')
-    .setDescription("Display top 10 standings."),
-
-  new SlashCommandBuilder()
-    .setName('addmmr')
-    .setDescription("⛔ Staff Only: Add MMR.")
-    .addUserOption(option => option.setName('player').setDescription('Target player').setRequired(true))
-    .addNumberOption(option => option.setName('amount').setDescription('MMR amount to add').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('removemmr')
-    .setDescription("⛔ Staff Only: Deduct MMR.")
-    .addUserOption(option => option.setName('player').setDescription('Target player').setRequired(true))
-    .addNumberOption(option => option.setName('amount').setDescription('MMR amount to deduct').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('setmmr')
-    .setDescription("⛔ Staff Only: Override MMR.")
-    .addUserOption(option => option.setName('player').setDescription('Target player').setRequired(true))
-    .addNumberOption(option => option.setName('amount').setDescription('Exact MMR value').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('clearallmmr')
-    .setDescription("⛔ Staff Only: Wipe database.")
-].map(command => command.toJSON());
-
-client.once('ready', async () => {
-  console.log('Deploying commands to Discord...');
-  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   try {
-    await rest.put(
-      Routes.applicationCommands(process.env.DISCORD_CLIENT_ID),
-      { body: commands }
-    );
-    console.log('Uncheatable Arena Referee Bot is online with Vision AI!');
-  } catch (error) {
-    console.error('Error deploying slash commands:', error);
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "HTTP-Referer": "https://render.com",
+        "X-Title": "Arena Ranked Bot",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "openrouter/free",
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Look closely at the small watch screen in the VR image.\n\n1. OUTCOME: Check HP display at top. Above 0 HP = 'win', otherwise 'loss'.\n2. KILLS (K): Read top number next to 'K'.\n3. DEATHS (D): Read bottom number next to 'D'. COUNT DIGITS CAREFULLY. If only 1 character is visible (like '2'), output 2. Do not output two digits unless clearly side-by-side.\n\nReturn raw JSON only: {\"outcome\": \"win\", \"kills\": 21, \"deaths\": 2}"
+              },
+              {
+                type: "image_url",
+                image_url: { url: imageUrl }
+              }
+            ]
+          }
+        ]
+      })
+    });
+
+    const data = await response.json();
+    if (!data?.choices?.[0]?.message) return null;
+
+    const jsonMatch = data.choices[0].message.content.match(/\{[\s\S]*?\}/);
+    return jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+  } catch (err) {
+    console.error("AI Scanning Error:", err);
+    return null;
   }
-});
+}
 
 // --- 💬 CHAT INPUT INTERACTION HANDLER ---
 client.on('interactionCreate', async (interaction) => {
