@@ -360,6 +360,9 @@ client.on('interactionCreate', async (interaction) => {
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
+  // STRICT CHANNEL FILTER: Ignore everything outside the designated upload channel
+  if (message.channel.id !== UPLOAD_CHANNEL_ID) return;
+
   const attachment = message.attachments.first();
   if (!attachment || !attachment.contentType?.startsWith('image/')) return;
 
