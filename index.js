@@ -129,34 +129,37 @@ async function analyzeScoreboardWithAI(imageUrl) {
   }
 }
 
-// --- 💬 CHAT INPUT INTERACTION HANDLER ---
+// --- STEP 4: DISPUTE BUTTON CLICK LISTENER ---
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
+  if (!interaction.isButton()) return;
 
-  const { commandName } = interaction;
+  if (interaction.customId.startsWith('report_match_')) {
+    const modal = new ModalBuilder()
+      .setCustomId(`submit_dispute_${interaction.message.id}`)
+      .setTitle('Dispute AI Match Stats');
 
-  if (commandName === 'stats') {
-    const targetUser = interaction.options.getUser('user') || interaction.user;
-    const player = await Player.findOne({ userId: targetUser.id });
-    
-    if (!player) {
-      const errorMsg = targetUser.id === interaction.user.id 
-        ? "❌ You haven't played any Arena matches yet!" 
-        : `❌ **${targetUser.username}** doesn't have any recorded Arena statistics yet.`;
-      return interaction.reply({ content: errorMsg, ephemeral: true });
-    }
+    const killsInput = new TextInputBuilder()
+      .setCustomId('correct_kills')
+      .setLabel('Correct Kills')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('Enter actual kills')
+      .setRequired(true);
 
-    const totalGames = player.wins + player.losses;
-    const winRate = totalGames > 0 ? ((player.wins / totalGames) * 100).toFixed(1) : 0;
-    const kdRatio = player.deaths > 0 ? (player.kills / player.deaths).toFixed(2) : player.kills.toFixed(2);
-    
-    return interaction.reply({
-      content: `📊 **${targetUser.username}'s Arena Dossier**\n` +
-               `• Current Rank: **${getRankInfo(player.mmr).name}** (${player.mmr.toFixed(2)} MMR)\n` +
-               `• K/D Ratio: **${kdRatio}** (${player.kills} Kills / ${player.deaths} Deaths)\n` +
-               `• Win Rate: **${winRate}%** (${player.wins}W - ${player.losses}L)`
-    });
+    const deathsInput = new TextInputBuilder()
+      .setCustomId('correct_deaths')
+      .setLabel('Correct Deaths')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('Enter actual deaths')
+      .setRequired(true);
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(killsInput),
+      new ActionRowBuilder().addComponents(deathsInput)
+    );
+
+    await interaction.showModal(modal);
   }
+});
 
   if (commandName === 'leaderboard') {
     const sorted = await Player.find({}).sort({ mmr: -1 }).limit(10);
