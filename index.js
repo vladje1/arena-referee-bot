@@ -13,6 +13,10 @@ const {
 const mongoose = require('mongoose');
 const http = require('http');
 
+// --- 🤖 GOOGLE GEMINI AI INITIALIZATION ---
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -87,92 +91,61 @@ function isStaff(member) {
   return member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID);
 }
 
-// --- 🚀 ROBUST VISION AI WITH VALID MODEL ENDPOINTS ---
+// --- 🚀 GOOGLE GEMINI VISION SCANNER ---
 async function analyzeScoreboardWithAI(imageUrl) {
-  // Currently active OpenRouter models capable of image processing
-  const VISION_MODELS = [
-    "google/gemini-2.0-flash-001",
-    "meta-llama/llama-3.2-90b-vision-instruct:free",
-    "google/gemini-flash-1.5-8b"
-  ];
+  try {
+    console.log("🔍 Fetching and scanning image with Google Gemini Vision...");
 
-  for (const modelName of VISION_MODELS) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const imageResp = await fetch(imageUrl);
+    if (!imageResp.ok) {
+      console.error("❌ Failed to download screenshot from Discord.");
+      return null;
+    }
 
-    try {
-      console.log(`🔍 Attempting AI scan with model: ${modelName}`);
+    const arrayBuffer = await imageResp.arrayBuffer();
+    const base64Data = Buffer.from(arrayBuffer).toString('base64');
+    const mimeType = imageResp.headers.get('content-type') || 'image/png';
 
-      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        signal: controller.signal,
-        headers: {
-          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          "HTTP-Referer": "https://render.com",
-          "X-Title": "Arena Ranked Bot",
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model: modelName,
-          max_tokens: 120,
-          messages: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: "Examine the watch display screen in this VR image.\n" +
-                        "1. Read the HP value at the top. If HP > 0, outcome is 'win', else 'loss'.\n" +
-                        "2. Read Kills next to 'K' (e.g. 19).\n" +
-                        "3. Read Deaths next to 'D' (e.g. 4).\n" +
-                        "Return strictly raw JSON format without markdown code blocks: {\"outcome\": \"win\", \"kills\": 19, \"deaths\": 4}"
-                },
-                {
-                  type: "image_url",
-                  image_url: { url: imageUrl }
-                }
-              ]
-            }
-          ]
-        })
-      });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-      clearTimeout(timeoutId);
+    const prompt = `Analyze the digital watch screen in this VR screenshot.
+1. Read HP at the top (e.g. 200). If HP > 0, outcome is 'win', else 'loss'.
+2. Read Kills (K) next to the 'K' icon or letter (e.g. 19).
+3. Read Deaths (D) next to the 'D' icon or letter (e.g. 4).
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`⚠️ Model ${modelName} HTTP Error ${response.status}:`, errorText);
-        continue;
-      }
+Respond ONLY with raw JSON. No Markdown formatting or extra text. Example: {"outcome": "win", "kills": 19, "deaths": 4}`;
 
-      const data = await response.json();
-      const content = data?.choices?.[0]?.message?.content;
-
-      if (!content) {
-        console.error(`⚠️ Model ${modelName} returned empty response.`);
-        continue;
-      }
-
-      const cleaned = content.replace(/```json/gi, '').replace(/```/g, '').trim();
-      const jsonMatch = cleaned.match(/\{[\s\S]*?\}/);
-
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.outcome && parsed.kills !== undefined && parsed.deaths !== undefined) {
-          console.log(`✅ AI scan success via ${modelName}:`, parsed);
-          return parsed;
+    const result = await model.generateContent([
+      prompt,
+      {
+        inlineData: {
+          data: base64Data,
+          mimeType: mimeType
         }
       }
+    ]);
 
-      console.error(`⚠️ Failed parsing JSON output: "${content}"`);
-    } catch (err) {
-      clearTimeout(timeoutId);
-      console.error(`❌ Error executing ${modelName}:`, err.message);
+    const responseText = result.response.text();
+    console.log("🤖 Raw Gemini Output:", responseText);
+
+    const cleaned = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*?\}/);
+
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (parsed.outcome && parsed.kills !== undefined && parsed.deaths !== undefined) {
+        console.log("✅ Gemini Vision Success:", parsed);
+        return parsed;
+      }
     }
-  }
 
-  console.error("❌ All configured vision model endpoints failed.");
-  return null;
+    console.error("⚠️ Couldn't parse JSON from Gemini response.");
+    return null;
+
+  } catch (err) {
+    console.error("❌ Gemini API Error:", err.message);
+    return null;
+  }
 }
 
 // --- 🎮 BOT READY ---
