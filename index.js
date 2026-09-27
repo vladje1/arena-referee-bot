@@ -5,6 +5,9 @@ const {
   ActionRowBuilder, 
   ButtonBuilder, 
   ButtonStyle, 
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
   EmbedBuilder,
   SlashCommandBuilder,
   REST,
@@ -24,7 +27,7 @@ const client = new Client({
 
 // --- ⚙️ CONFIGURATION ---
 const QUEUE_CHANNEL_ID = '1553779380218630264'; // Ranked Queue & Match Threads Channel
-const STAFF_ROLE_ID = '1553324535128916070';    // Staff / Admin Role
+const STAFF_ROLE_ID = '1553324535128916070';    // Grader / Staff Role
 
 // --- 📊 COMPETITIVE RANK ROLES ---
 const RANK_ROLES = [
@@ -45,7 +48,9 @@ const playerSchema = new mongoose.Schema({
   metaUsername: { type: String, default: '' },
   mmr: { type: Number, default: 0 },
   wins: { type: Number, default: 0 },
-  losses: { type: Number, default: 0 }
+  losses: { type: Number, default: 0 },
+  kills: { type: Number, default: 0 },
+  deaths: { type: Number, default: 0 }
 });
 const Player = mongoose.model('Player', playerSchema);
 
@@ -85,14 +90,47 @@ function isStaff(member) {
   return member && (member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID));
 }
 
-// --- 🎛️ SLASH COMMAND DEFINITIONS ---
+// --- 🎛️ ALL SLASH COMMAND DEFINITIONS ---
 const commands = [
-  new SlashCommandBuilder().setName('leaderboard').setDescription('Show top ranked players'),
-  new SlashCommandBuilder().setName('queue-panel').setDescription('Post 1v1 Arena Queue Panel (Staff Only)'),
   new SlashCommandBuilder()
     .setName('create-profile')
     .setDescription('Link Meta Username')
-    .addStringOption(opt => opt.setName('meta_username').setDescription('Your exact Meta ID').setRequired(true))
+    .addStringOption(opt => opt.setName('meta_username').setDescription('Your exact Meta ID').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('queue-panel')
+    .setDescription('Post 1v1 Arena Queue Panel (Staff Only)'),
+
+  new SlashCommandBuilder()
+    .setName('leaderboard')
+    .setDescription('Display the top 10 players currently leading the Arena standings.'),
+
+  new SlashCommandBuilder()
+    .setName('stats')
+    .setDescription('View an Arena match record dossier profile.')
+    .addUserOption(opt => opt.setName('target').setDescription('Player to view stats for (Optional)').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('addmmr')
+    .setDescription('Staff Only: Manually add a specific amount of MMR to a player.')
+    .addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true))
+    .addNumberOption(opt => opt.setName('amount').setDescription('Amount of MMR to add').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('removemmr')
+    .setDescription('Staff Only: Deduct a specific amount of MMR from a player.')
+    .addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true))
+    .addNumberOption(opt => opt.setName('amount').setDescription('Amount of MMR to deduct').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('setmmr')
+    .setDescription('Staff Only: Override a player\'s MMR value to an exact number.')
+    .addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true))
+    .addNumberOption(opt => opt.setName('value').setDescription('Exact MMR value').setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('clearallmmr')
+    .setDescription('Staff Only: Permanently wipe the competitive leaderboard database.')
 ].map(c => c.toJSON());
 
 // --- 🤖 BOT READY ---
@@ -107,17 +145,6 @@ client.on('interactionCreate', async (interaction) => {
 
   // 1. Slash Commands
   if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === 'leaderboard') {
-      const sorted = await Player.find({}).sort({ mmr: -1 }).limit(10);
-      if (sorted.length === 0) return interaction.reply({ content: "❌ Leaderboard is empty!", ephemeral: true });
-      
-      let text = `🥇 **Arena Leaderboard** 🥇\n\n`;
-      sorted.forEach((p, i) => {
-        text += `${i + 1}. **${p.username}** — [${getRankInfo(p.mmr).name}]${p.mmr.toFixed(0)} MMR\n`;
-      });
-      return interaction.reply({ content: text });
-    }
-
     if (interaction.commandName === 'create-profile') {
       const metaUsername = interaction.options.getString('meta_username');
       await Player.findOneAndUpdate(
@@ -142,9 +169,102 @@ client.on('interactionCreate', async (interaction) => {
 
       return interaction.reply({ embeds: [embed], components: [row] });
     }
+
+    if (interaction.commandName === 'leaderboard') {
+      const sorted = await Player.find({}).sort({ mmr: -1 }).limit(10);
+      if (sorted.length === 0) return interaction.reply({ content: "❌ Leaderboard is empty!", ephemeral: true });
+      
+      let text = `🥇 **Arena Leaderboard** 🥇\n\n`;
+      sorted.forEach((p, i) => {
+        text += `${i + 1}. **${p.username}** — [${getRankInfo(p.mmr).name}]${p.mmr.toFixed(0)} MMR\n`;
+      });
+      return interaction.reply({ content: text });
+    }
+
+    if (interaction.commandName === 'stats') {
+      const targetUser = interaction.options.getUser('target') || interaction.user;
+      const player = await Player.findOne({ userId: targetUser.id });
+
+      if (!player) {
+        return interaction.reply({ content: `❌ No competitive dossier found for <@${targetUser.id}>.`, ephemeral: true });
+      }
+
+      const rank = getRankInfo(player.mmr);
+      const winRate = (player.wins + player.losses) > 0 
+        ? ((player.wins / (player.wins + player.losses)) * 100).toFixed(1) 
+        : '0.0';
+
+      const embed = new EmbedBuilder()
+        .setTitle(`📊 Arena Profile — ${player.username}`)
+        .setColor(0x3498db)
+        .addFields(
+          { name: 'Meta Username', value: `\`${player.metaUsername || 'Not Linked'}\``, inline: true },
+          { name: 'Current Rank', value: `**${rank.name}**`, inline: true },
+          { name: 'MMR', value: `**${player.mmr.toFixed(0)}**`, inline: true },
+          { name: 'Wins', value: `${player.wins}`, inline: true },
+          { name: 'Losses', value: `${player.losses}`, inline: true },
+          { name: 'Win Rate', value: `${winRate}%`, inline: true }
+        );
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    if (interaction.commandName === 'addmmr') {
+      if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
+      const target = interaction.options.getUser('target');
+      const amount = interaction.options.getNumber('amount');
+
+      let player = await Player.findOne({ userId: target.id }) || new Player({ userId: target.id, username: target.username });
+      player.mmr += amount;
+      await player.save();
+
+      if (interaction.guild) {
+        const member = await interaction.guild.members.fetch(target.id).catch(() => null);
+        updatePlayerRole(interaction.guild, member, player.mmr);
+      }
+      return interaction.reply({ content: `✅ Added **+${amount} MMR** to <@${target.id}>. New MMR: **${player.mmr.toFixed(0)}**` });
+    }
+
+    if (interaction.commandName === 'removemmr') {
+      if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
+      const target = interaction.options.getUser('target');
+      const amount = interaction.options.getNumber('amount');
+
+      let player = await Player.findOne({ userId: target.id }) || new Player({ userId: target.id, username: target.username });
+      player.mmr = Math.max(0, player.mmr - amount);
+      await player.save();
+
+      if (interaction.guild) {
+        const member = await interaction.guild.members.fetch(target.id).catch(() => null);
+        updatePlayerRole(interaction.guild, member, player.mmr);
+      }
+      return interaction.reply({ content: `✅ Deducted **-${amount} MMR** from <@${target.id}>. New MMR: **${player.mmr.toFixed(0)}**` });
+    }
+
+    if (interaction.commandName === 'setmmr') {
+      if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
+      const target = interaction.options.getUser('target');
+      const value = interaction.options.getNumber('value');
+
+      let player = await Player.findOne({ userId: target.id }) || new Player({ userId: target.id, username: target.username });
+      player.mmr = Math.max(0, value);
+      await player.save();
+
+      if (interaction.guild) {
+        const member = await interaction.guild.members.fetch(target.id).catch(() => null);
+        updatePlayerRole(interaction.guild, member, player.mmr);
+      }
+      return interaction.reply({ content: `✅ Set <@${target.id}>'s MMR to **${player.mmr.toFixed(0)}**.` });
+    }
+
+    if (interaction.commandName === 'clearallmmr') {
+      if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
+      await Player.deleteMany({});
+      return interaction.reply({ content: "⚠️ **Database Wiped:** All MMR records and player profiles have been reset." });
+    }
   }
 
-  // 2. Queue Buttons & Win Reporting
+  // 2. Queue Buttons & Staff Modal Grading
   if (interaction.isButton()) {
     if (interaction.customId === 'join_1v1_queue') {
       if (active1v1Queue.some(p => p.userId === interaction.user.id)) {
@@ -184,12 +304,52 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    // Direct Match Result Reporting by Players
-    if (interaction.customId.startsWith('report_win_')) {
+    // Staff Grader Button Action
+    if (interaction.customId.startsWith('grade_match_')) {
+      if (!isStaff(interaction.member)) {
+        return interaction.reply({ content: "❌ Access Denied: Grader/Staff permissions required.", ephemeral: true });
+      }
+
       const [, , winnerId, loserId] = interaction.customId.split('_');
 
-      if (interaction.user.id !== winnerId && interaction.user.id !== loserId && !isStaff(interaction.member)) {
-        return interaction.reply({ content: '❌ Only players in this match can report the result!', ephemeral: true });
+      const modal = new ModalBuilder()
+        .setCustomId(`submit_grading_${winnerId}_${loserId}`)
+        .setTitle('Enter Winner Statistics');
+
+      const killsInput = new TextInputBuilder()
+        .setCustomId('modal_kills')
+        .setLabel('Winner Kills')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      const deathsInput = new TextInputBuilder()
+        .setCustomId('modal_deaths')
+        .setLabel('Winner Deaths')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(killsInput),
+        new ActionRowBuilder().addComponents(deathsInput)
+      );
+
+      await interaction.showModal(modal);
+    }
+  }
+
+  // 3. Staff Modal Submission (Stats & MMR Update)
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId.startsWith('submit_grading_')) {
+      if (!isStaff(interaction.member)) {
+        return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
+      }
+
+      const [, , winnerId, loserId] = interaction.customId.split('_');
+      const kills = parseInt(interaction.fields.getTextInputValue('modal_kills'), 10);
+      const deaths = parseInt(interaction.fields.getTextInputValue('modal_deaths'), 10);
+
+      if (isNaN(kills) || isNaN(deaths) || kills < 0 || deaths < 0) {
+        return interaction.reply({ content: '❌ Invalid numbers entered!', ephemeral: true });
       }
 
       await interaction.deferReply();
@@ -199,9 +359,11 @@ client.on('interactionCreate', async (interaction) => {
       const winUser = await client.users.fetch(winnerId).catch(() => null);
       if (winUser) winner.username = winUser.username;
 
-      const winnerGain = 25;
+      let winnerMmrChange = 7.5 + (kills * 0.20) - (deaths * 0.25);
       winner.wins += 1;
-      winner.mmr += winnerGain;
+      winner.kills += kills;
+      winner.deaths += deaths;
+      winner.mmr = Math.max(0, winner.mmr + winnerMmrChange);
       await winner.save();
 
       // Update Loser
@@ -209,9 +371,11 @@ client.on('interactionCreate', async (interaction) => {
       const loseUser = await client.users.fetch(loserId).catch(() => null);
       if (loseUser) loser.username = loseUser.username;
 
-      const loserLoss = 15;
+      let loserMmrChange = -10 + (deaths * 0.20) - (kills * 0.25);
       loser.losses += 1;
-      loser.mmr = Math.max(0, loser.mmr - loserLoss);
+      loser.kills += deaths;
+      loser.deaths += kills;
+      loser.mmr = Math.max(0, loser.mmr + loserMmrChange);
       await loser.save();
 
       // Update Discord Rank Roles
@@ -223,19 +387,16 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       const resultEmbed = new EmbedBuilder()
-        .setTitle('🏆 Match Results Recorded')
+        .setTitle('✅ Match Graded & Finalized')
         .setColor(0x2ecc71)
         .setDescription(
-          `**Winner:** <@${winnerId}> (+${winnerGain} MMR → **${winner.mmr.toFixed(0)} MMR**)\n` +
-          `**Loser:** <@${loserId}> (-${loserLoss} MMR → **${loser.mmr.toFixed(0)} MMR**)\n\n` +
-          `This thread will auto-archive shortly.`
+          `**Grader:** ${interaction.user.username}\n\n` +
+          `🏆 **Winner:** <@${winnerId}> (+${winnerMmrChange.toFixed(2)} MMR → **${winner.mmr.toFixed(0)} MMR**)\n` +
+          `💀 **Loser:** <@${loserId}> (${loserMmrChange.toFixed(2)} MMR → **${loser.mmr.toFixed(0)} MMR**)`
         );
 
       await interaction.editReply({ embeds: [resultEmbed] });
-
-      setTimeout(() => {
-        interaction.channel.setArchived(true).catch(() => null);
-      }, 5000);
+      await interaction.channel.setArchived(true).catch(() => null);
     }
   }
 });
@@ -275,7 +436,7 @@ async function launch1v1Thread(matchData) {
 
   const roomCode = generateRoomCode();
 
-  // Create match thread in channel: 1553779380218630264
+  // Create match thread directly inside queue channel (1553779380218630264)
   const thread = await channel.threads.create({
     name: `⚔️ 1v1 Arena Match - Code ${roomCode}`,
     autoArchiveDuration: 60
@@ -284,17 +445,17 @@ async function launch1v1Thread(matchData) {
   const p1 = players[0];
   const p2 = players[1];
 
-  const reportP1Win = new ButtonBuilder()
-    .setCustomId(`report_win_${thread.id}_${p1.userId}_${p2.userId}`)
-    .setLabel(`${p1.username} Won`)
+  const gradeP1Win = new ButtonBuilder()
+    .setCustomId(`grade_match_${thread.id}_${p1.userId}_${p2.userId}`)
+    .setLabel(`Grade Winner: ${p1.username}`)
     .setStyle(ButtonStyle.Success);
 
-  const reportP2Win = new ButtonBuilder()
-    .setCustomId(`report_win_${thread.id}_${p2.userId}_${p1.userId}`)
-    .setLabel(`${p2.username} Won`)
+  const gradeP2Win = new ButtonBuilder()
+    .setCustomId(`grade_match_${thread.id}_${p2.userId}_${p1.userId}`)
+    .setLabel(`Grade Winner: ${p2.username}`)
     .setStyle(ButtonStyle.Success);
 
-  const row = new ActionRowBuilder().addComponents(reportP1Win, reportP2Win);
+  const row = new ActionRowBuilder().addComponents(gradeP1Win, gradeP2Win);
 
   const embed = new EmbedBuilder()
     .setTitle(`🏟️ 1v1 Arena Match Started`)
@@ -303,13 +464,14 @@ async function launch1v1Thread(matchData) {
       `🔑 **Private Room Code:** \`${roomCode}\`\n\n` +
       `👤 **Player 1:** <@${p1.userId}>\n` +
       `👤 **Player 2:** <@${p2.userId}>\n\n` +
-      `**How to Record Match Result:**\n` +
+      `**Instructions:**\n` +
       `1. Join Animal Company using code **${roomCode}**.\n` +
-      `2. Once finished, click the corresponding button below to confirm the winner!`
+      `2. Once finished, upload your scoreboard/watch screenshot in this thread.\n` +
+      `3. Mention <@&${STAFF_ROLE_ID}> so a grader can log the match!`
     );
 
   await thread.send({ 
-    content: `<@${p1.userId}> vs <@${p2.userId}>`, 
+    content: `<@${p1.userId}> vs <@${p2.userId}> | <@&${STAFF_ROLE_ID}>`, 
     embeds: [embed], 
     components: [row] 
   });
