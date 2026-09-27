@@ -8,12 +8,14 @@ const {
   ModalBuilder, 
   TextInputBuilder, 
   TextInputStyle,
+  EmbedBuilder,
   REST,
   Routes,
   SlashCommandBuilder
 } = require('discord.js');
 const mongoose = require('mongoose');
 const { InferenceClient } = require('@huggingface/inference');
+const http = require('http');
 
 const hf = new InferenceClient(process.env.HF_TOKEN);
 
@@ -63,6 +65,7 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('Connected securely to Cloud Leaderboard Database!'))
   .catch(err => console.error('Database connection tracking failed:', err));
 
+// --- 🛠️ HELPER FUNCTIONS ---
 function getRankInfo(mmr) {
   return RANK_ROLES.find(rank => mmr >= rank.minMmr) || RANK_ROLES[RANK_ROLES.length - 1];
 }
@@ -129,246 +132,161 @@ async function analyzeScoreboardWithAI(imageUrl) {
   }
 }
 
-// --- STEP 4: DISPUTE BUTTON CLICK LISTENER ---
+// --- 🎮 BOT READY EVENT ---
+client.once('ready', () => {
+  console.log(`Bot logged in as ${client.user.tag}`);
+});
+
+// --- 🎛️ INTERACTION HANDLER (Commands, Buttons, Modals) ---
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isButton()) return;
 
-  if (interaction.customId.startsWith('report_match_')) {
-    const modal = new ModalBuilder()
-      .setCustomId(`submit_dispute_${interaction.message.id}`)
-      .setTitle('Dispute AI Match Stats');
+  // 1. Slash Commands Handling
+  if (interaction.isChatInputCommand()) {
+    const { commandName } = interaction;
 
-    const killsInput = new TextInputBuilder()
-      .setCustomId('correct_kills')
-      .setLabel('Correct Kills')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('Enter actual kills')
-      .setRequired(true);
-
-    const deathsInput = new TextInputBuilder()
-      .setCustomId('correct_deaths')
-      .setLabel('Correct Deaths')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('Enter actual deaths')
-      .setRequired(true);
-
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(killsInput),
-      new ActionRowBuilder().addComponents(deathsInput)
-    );
-
-    await interaction.showModal(modal);
-  }
-});
-
-  if (commandName === 'leaderboard') {
-    const sorted = await Player.find({}).sort({ mmr: -1 }).limit(10);
-    if (sorted.length === 0) return interaction.reply({ content: "The leaderboard is empty!", ephemeral: true });
-    
-    let text = `🥇 **Animal Company Arena Leaderboard** 🥇\n\n`;
-    sorted.forEach((p, i) => {
-      text += `${i + 1}. **${p.username}** — [${getRankInfo(p.mmr).name}] ${p.mmr.toFixed(0)} MMR\n`;
-    });
-    return interaction.reply({ content: text });
-  }
-
-  if (['addmmr', 'removemmr', 'setmmr', 'clearallmmr'].includes(commandName)) {
-    if (!isStaff(interaction.member)) {
-      return interaction.reply({ content: "❌ Access Denied: Requires Staff status.", ephemeral: true });
-    }
-  }
-
-  if (commandName === 'addmmr') {
-    const targetUser = interaction.options.getUser('player');
-    const amount = interaction.options.getNumber('amount');
-    if (amount <= 0) return interaction.reply({ content: "⚠️ Amount must be greater than 0.", ephemeral: true });
-
-    let player = await Player.findOne({ userId: targetUser.id }) || new Player({ userId: targetUser.id, username: targetUser.username });
-    player.mmr += amount;
-    await player.save();
-
-    if (interaction.guild) {
-      const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
-      await updatePlayerRole(interaction.guild, member, player.mmr);
-    }
-    return interaction.reply({ content: `✅ Added **${amount} MMR** to **${targetUser.username}**! (New Total: ${player.mmr.toFixed(2)})` });
-  }
-
-  if (commandName === 'removemmr') {
-    const targetUser = interaction.options.getUser('player');
-    const amount = interaction.options.getNumber('amount');
-    if (amount <= 0) return interaction.reply({ content: "⚠️ Amount must be greater than 0.", ephemeral: true });
-
-    let player = await Player.findOne({ userId: targetUser.id });
-    if (!player) return interaction.reply({ content: `❌ ${targetUser.username} has no recorded data.`, ephemeral: true });
-
-    player.mmr = Math.max(0, player.mmr - amount);
-    await player.save();
-
-    if (interaction.guild) {
-      const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
-      await updatePlayerRole(interaction.guild, member, player.mmr);
-    }
-    return interaction.reply({ content: `✅ Removed **${amount} MMR** from **${targetUser.username}**! (New Total: ${player.mmr.toFixed(2)})` });
-  }
-
-  if (commandName === 'setmmr') {
-    const targetUser = interaction.options.getUser('player');
-    const amount = interaction.options.getNumber('amount');
-    if (amount < 0) return interaction.reply({ content: "⚠️ MMR cannot be lower than 0.", ephemeral: true });
-
-    let player = await Player.findOne({ userId: targetUser.id }) || new Player({ userId: targetUser.id, username: targetUser.username });
-    player.mmr = amount;
-    await player.save();
-
-    if (interaction.guild) {
-      const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
-      await updatePlayerRole(interaction.guild, member, player.mmr);
-    }
-    return interaction.reply({ content: `🎯 Set **${targetUser.username}** to **${amount} MMR** [${getRankInfo(amount).name}].` });
-  }
-
-  if (commandName === 'clearallmmr') {
-    await Player.deleteMany({});
-    return interaction.reply({ content: "🧹 Leaderboard Wiped! Ledger permanently cleared." });
-  }
-});
-
-// --- 📸 AUTOMATED SCREENSHOT PROCESSOR ---
-client.on('messageCreate', async (message) => {
-  if (message.author.bot) return;
-
-  const attachment = message.attachments.first();
-  if (!attachment || !attachment.contentType?.startsWith('image/')) return;
-
-  const aiResult = await analyzeScoreboardWithAI(attachment.url);
-
-  if (aiResult) {
-    const reportButton = new ButtonBuilder()
-      .setCustomId(`report_match_${message.id}`)
-      .setLabel('⚠️ Report Wrong Stats')
-      .setStyle(ButtonStyle.Danger);
-
-    const row = new ActionRowBuilder().addComponents(reportButton);
-
-    const embed = new EmbedBuilder()
-      .setTitle('🤖 Auto-Graded Match Result')
-      .setColor(aiResult.outcome === 'win' ? 0x2ecc71 : 0xe74c3c)
-      .setDescription(
-        `**Result:** ${aiResult.outcome.toUpperCase()}\n` +
-        `**Kills:** ${aiResult.kills} | **Deaths:** ${aiResult.deaths}\n\n` +
-        `*Notice an AI error? Click below to dispute these stats.*`
-      )
-      .setThumbnail(attachment.url);
-
-    await message.reply({ embeds: [embed], components: [row] });
-  } else {
-    const manualWin = new ButtonBuilder()
-      .setCustomId(`manual_win_${message.id}`)
-      .setLabel('Enter Stats (WIN)')
-      .setStyle(ButtonStyle.Success);
-
-    const manualLoss = new ButtonBuilder()
-      .setCustomId(`manual_loss_${message.id}`)
-      .setLabel('Enter Stats (LOSS)')
-      .setStyle(ButtonStyle.Secondary);
-
-    const row = new ActionRowBuilder().addComponents(manualWin, manualLoss);
-
-    const embed = new EmbedBuilder()
-      .setTitle('🔍 Manual Review Needed')
-      .setColor(0xf1c40f)
-      .setDescription('AI could not read the watch clearly. Please input stats manually:')
-      .setImage(attachment.url);
-
-    await message.reply({ embeds: [embed], components: [row] });
-  }
-});
-      await message.reactions.removeAll().catch(() => null);
-      await message.react('❓').catch(() => null);
-      return;
+    if (commandName === 'leaderboard') {
+      const sorted = await Player.find({}).sort({ mmr: -1 }).limit(10);
+      if (sorted.length === 0) return interaction.reply({ content: "The leaderboard is empty!", ephemeral: true });
+      
+      let text = `🥇 **Animal Company Arena Leaderboard** 🥇\n\n`;
+      sorted.forEach((p, i) => {
+        text += `${i + 1}. **${p.username}** — [${getRankInfo(p.mmr).name}] ${p.mmr.toFixed(0)} MMR\n`;
+      });
+      return interaction.reply({ content: text });
     }
 
-    const { outcome, kills, deaths } = aiResult;
-    const cleanKills = parseInt(kills, 10) || 0;
-    const cleanDeaths = parseInt(deaths, 10) || 0;
-    const cleanOutcome = outcome?.toLowerCase() === 'win' ? 'win' : 'loss';
-
-    let player = await Player.findOne({ userId: message.author.id }) || new Player({ userId: message.author.id, username: message.author.username });
-    
-    let mmrChange = cleanOutcome === 'win' ? 7.5 : -10;
-    if (cleanOutcome === 'win') player.wins += 1; else player.losses += 1;
-
-    mmrChange += (cleanKills * 0.20);
-    mmrChange -= (cleanDeaths * 0.25);
-
-    player.kills += cleanKills;
-    player.deaths += cleanDeaths;
-    player.mmr = Math.max(0, player.mmr + mmrChange);
-    await player.save();
-
-    let rankUpdateMessage = '';
-    if (message.guild) {
-      const member = await message.guild.members.fetch(message.author.id).catch(() => null);
-      const newRankAssigned = await updatePlayerRole(message.guild, member, player.mmr);
-      if (newRankAssigned) {
-        rankUpdateMessage = `\n🆕 **Rank Up:** Server role updated to **${newRankAssigned}**!`;
+    if (['addmmr', 'removemmr', 'setmmr', 'clearallmmr'].includes(commandName)) {
+      if (!isStaff(interaction.member)) {
+        return interaction.reply({ content: "❌ Access Denied: Requires Staff status.", ephemeral: true });
       }
     }
 
-    const reportCardText = `🤖 **Auto-Graded via Vision AI!**\n` +
-      `• **Match Result:** ${cleanOutcome === 'win' ? '🟢 WIN' : '🔴 LOSS'}\n` +
-      `• **Stats Detected:** ${cleanKills} Kills (+${(cleanKills*0.20).toFixed(1)} MMR) | ${cleanDeaths} Deaths (-${(cleanDeaths*0.25).toFixed(2)} MMR)\n` +
-      `• **MMR Delta:** ${mmrChange >= 0 ? '+' : ''}${mmrChange.toFixed(2)}\n` +
-      `• **New Total MMR:** ${player.mmr.toFixed(2)} [${getRankInfo(player.mmr).name}]${rankUpdateMessage}`;
+    if (commandName === 'addmmr') {
+      const targetUser = interaction.options.getUser('player');
+      const amount = interaction.options.getNumber('amount');
+      if (amount <= 0) return interaction.reply({ content: "⚠️ Amount must be greater than 0.", ephemeral: true });
 
-    await message.reply(reportCardText).catch(() => null);
-    await message.reactions.removeAll().catch(() => null);
-    await message.react('✅').catch(() => null);
+      let player = await Player.findOne({ userId: targetUser.id }) || new Player({ userId: targetUser.id, username: targetUser.username });
+      player.mmr += amount;
+      await player.save();
 
-    if (reviewChannel) {
-      await reviewChannel.send({
-        content: `⚡ **Match Auto-Processed by Vision AI**\n👤 **Player:** <@${message.author.id}>\n📊 **Logged:** ${cleanOutcome.toUpperCase()} (${cleanKills}K / ${cleanDeaths}D) | ${mmrChange >= 0 ? '+' : ''}${mmrChange.toFixed(2)} MMR`
-      });
+      if (interaction.guild) {
+        const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+        await updatePlayerRole(interaction.guild, member, player.mmr);
+      }
+      return interaction.reply({ content: `✅ Added **${amount} MMR** to **${targetUser.username}**! (New Total: ${player.mmr.toFixed(2)})` });
+    }
+
+    if (commandName === 'removemmr') {
+      const targetUser = interaction.options.getUser('player');
+      const amount = interaction.options.getNumber('amount');
+      if (amount <= 0) return interaction.reply({ content: "⚠️ Amount must be greater than 0.", ephemeral: true });
+
+      let player = await Player.findOne({ userId: targetUser.id });
+      if (!player) return interaction.reply({ content: `❌ ${targetUser.username} has no recorded data.`, ephemeral: true });
+
+      player.mmr = Math.max(0, player.mmr - amount);
+      await player.save();
+
+      if (interaction.guild) {
+        const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+        await updatePlayerRole(interaction.guild, member, player.mmr);
+      }
+      return interaction.reply({ content: `✅ Removed **${amount} MMR** from **${targetUser.username}**! (New Total: ${player.mmr.toFixed(2)})` });
+    }
+
+    if (commandName === 'setmmr') {
+      const targetUser = interaction.options.getUser('player');
+      const amount = interaction.options.getNumber('amount');
+      if (amount < 0) return interaction.reply({ content: "⚠️ MMR cannot be lower than 0.", ephemeral: true });
+
+      let player = await Player.findOne({ userId: targetUser.id }) || new Player({ userId: targetUser.id, username: targetUser.username });
+      player.mmr = amount;
+      await player.save();
+
+      if (interaction.guild) {
+        const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+        await updatePlayerRole(interaction.guild, member, player.mmr);
+      }
+      return interaction.reply({ content: `🎯 Set **${targetUser.username}** to **${amount} MMR** [${getRankInfo(amount).name}].` });
+    }
+
+    if (commandName === 'clearallmmr') {
+      await Player.deleteMany({});
+      return interaction.reply({ content: "🧹 Leaderboard Wiped! Ledger permanently cleared." });
     }
   }
-});
 
-// --- 🎛️ BACKUP BUTTONS & MODAL HANDLER FOR MANUAL OVERRIDES ---
-client.on('interactionCreate', async (interaction) => {
+  // 2. Buttons Handling
   if (interaction.isButton()) {
+    if (interaction.customId.startsWith('report_match_')) {
+      const modal = new ModalBuilder()
+        .setCustomId(`submit_dispute_${interaction.message.id}`)
+        .setTitle('Dispute AI Match Stats');
+
+      const killsInput = new TextInputBuilder()
+        .setCustomId('correct_kills')
+        .setLabel('Correct Kills')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Enter actual kills')
+        .setRequired(true);
+
+      const deathsInput = new TextInputBuilder()
+        .setCustomId('correct_deaths')
+        .setLabel('Correct Deaths')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('Enter actual deaths')
+        .setRequired(true);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(killsInput),
+        new ActionRowBuilder().addComponents(deathsInput)
+      );
+
+      await interaction.showModal(modal);
+      return;
+    }
+
     const [action, outcome, playerId] = interaction.customId.split('_');
+
     if (action === 'deny') {
       await interaction.message.delete().catch(() => null);
       return interaction.reply({ content: '❌ Match submission rejected and cleared.', ephemeral: true });
     }
-    if (action === 'openform') {
+
+    if (action === 'manual' || action === 'openform') {
       if (!isStaff(interaction.member)) {
         return interaction.reply({ content: "❌ You don't have the Staff role to grade matches.", ephemeral: true });
       }
       const modal = new ModalBuilder()
         .setCustomId(`statsmodal_${outcome}_${playerId}`)
         .setTitle('Enter Match Statistics');
+
       const killsInput = new TextInputBuilder()
         .setCustomId('modal_kills')
         .setLabel('How many KILLS did they get?')
         .setPlaceholder('Example: 40')
         .setStyle(TextInputStyle.Short)
         .setRequired(true);
+
       const deathsInput = new TextInputBuilder()
         .setCustomId('modal_deaths')
         .setLabel('How many DEATHS did they get?')
         .setPlaceholder('Example: 8')
         .setStyle(TextInputStyle.Short)
         .setRequired(true);
+
       modal.addComponents(
         new ActionRowBuilder().addComponents(killsInput),
         new ActionRowBuilder().addComponents(deathsInput)
       );
+
       await interaction.showModal(modal);
+      return;
     }
   }
 
+  // 3. Modal Submission Handling
   if (interaction.isModalSubmit()) {
     const [prefix, outcome, playerId] = interaction.customId.split('_');
     if (prefix !== 'statsmodal') return;
@@ -432,6 +350,90 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-const http = require('http');
+// --- 📸 AUTOMATED SCREENSHOT PROCESSOR ---
+client.on('messageCreate', async (message) => {
+  if (message.author.bot) return;
+
+  const attachment = message.attachments.first();
+  if (!attachment || !attachment.contentType?.startsWith('image/')) return;
+
+  const reviewChannel = await client.channels.fetch(REVIEW_CHANNEL_ID).catch(() => null);
+  const aiResult = await analyzeScoreboardWithAI(attachment.url);
+
+  if (aiResult && aiResult.outcome) {
+    const { outcome, kills, deaths } = aiResult;
+    const cleanKills = parseInt(kills, 10) || 0;
+    const cleanDeaths = parseInt(deaths, 10) || 0;
+    const cleanOutcome = outcome?.toLowerCase() === 'win' ? 'win' : 'loss';
+
+    let player = await Player.findOne({ userId: message.author.id }) || new Player({ userId: message.author.id, username: message.author.username });
+    
+    let mmrChange = cleanOutcome === 'win' ? 7.5 : -10;
+    if (cleanOutcome === 'win') player.wins += 1; else player.losses += 1;
+
+    mmrChange += (cleanKills * 0.20);
+    mmrChange -= (cleanDeaths * 0.25);
+
+    player.kills += cleanKills;
+    player.deaths += cleanDeaths;
+    player.mmr = Math.max(0, player.mmr + mmrChange);
+    await player.save();
+
+    let rankUpdateMessage = '';
+    if (message.guild) {
+      const member = await message.guild.members.fetch(message.author.id).catch(() => null);
+      const newRankAssigned = await updatePlayerRole(message.guild, member, player.mmr);
+      if (newRankAssigned) {
+        rankUpdateMessage = `\n🆕 **Rank Up:** Server role updated to **${newRankAssigned}**!`;
+      }
+    }
+
+    const reportCardText = `🤖 **Auto-Graded via Vision AI!**\n` +
+      `• **Match Result:** ${cleanOutcome === 'win' ? '🟢 WIN' : '🔴 LOSS'}\n` +
+      `• **Stats Detected:** ${cleanKills} Kills (+${(cleanKills*0.20).toFixed(1)} MMR) | ${cleanDeaths} Deaths (-${(cleanDeaths*0.25).toFixed(2)} MMR)\n` +
+      `• **MMR Delta:** ${mmrChange >= 0 ? '+' : ''}${mmrChange.toFixed(2)}\n` +
+      `• **New Total MMR:** ${player.mmr.toFixed(2)} [${getRankInfo(player.mmr).name}]${rankUpdateMessage}`;
+
+    const reportButton = new ButtonBuilder()
+      .setCustomId(`report_match_${message.id}`)
+      .setLabel('⚠️ Report Wrong Stats')
+      .setStyle(ButtonStyle.Danger);
+
+    const row = new ActionRowBuilder().addComponents(reportButton);
+
+    await message.reply({ content: reportCardText, components: [row] }).catch(() => null);
+    await message.react('✅').catch(() => null);
+
+    if (reviewChannel) {
+      await reviewChannel.send({
+        content: `⚡ **Match Auto-Processed by Vision AI**\n👤 **Player:** <@${message.author.id}>\n📊 **Logged:** ${cleanOutcome.toUpperCase()} (${cleanKills}K / ${cleanDeaths}D) | ${mmrChange >= 0 ? '+' : ''}${mmrChange.toFixed(2)} MMR`
+      });
+    }
+  } else {
+    // Manual review trigger when AI fails
+    const manualWin = new ButtonBuilder()
+      .setCustomId(`openform_win_${message.author.id}`)
+      .setLabel('Enter Stats (WIN)')
+      .setStyle(ButtonStyle.Success);
+
+    const manualLoss = new ButtonBuilder()
+      .setCustomId(`openform_loss_${message.author.id}`)
+      .setLabel('Enter Stats (LOSS)')
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder().addComponents(manualWin, manualLoss);
+
+    const embed = new EmbedBuilder()
+      .setTitle('🔍 Manual Review Needed')
+      .setColor(0xf1c40f)
+      .setDescription('AI could not read the watch clearly. Staff can input stats manually using the buttons below:')
+      .setImage(attachment.url);
+
+    await message.reply({ embeds: [embed], components: [row] });
+    await message.react('❓').catch(() => null);
+  }
+});
+
+// --- 🌐 WEB SERVER KEEP-ALIVE & LOGIN ---
 http.createServer((req, res) => res.end('Bot is active!')).listen(process.env.PORT || 3000);
 client.login(process.env.DISCORD_TOKEN);
