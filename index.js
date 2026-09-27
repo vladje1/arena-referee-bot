@@ -111,9 +111,9 @@ async function analyzeScoreboardWithAI(imageUrl, retries = 2) {
 2. Read the digital 7-segment number displayed next to "K" for Kills.
 3. Read the digital 7-segment number displayed next to "D" for Deaths.`;
 
-    // Enforce exact JSON response schema
+    // Uses official active vision model string "gemini-2.0-flash" with strict JSON schema response
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
+      model: "gemini-2.0-flash",
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
