@@ -235,39 +235,57 @@ client.on('interactionCreate', async (interaction) => {
 
   // 2. Button Interactions
   if (interaction.isButton()) {
+    // Player triggers a dispute report -> forwards directly to staff channel
     if (interaction.customId.startsWith('report_match_')) {
-      const modal = new ModalBuilder()
-        .setCustomId(`submit_dispute_${interaction.message.id}`)
-        .setTitle('Dispute Match Stats');
+      const reviewChannel = await client.channels.fetch(REVIEW_CHANNEL_ID).catch(() => null);
+      
+      if (reviewChannel) {
+        const imageUrl = interaction.message.attachments.first()?.url;
 
-      const killsInput = new TextInputBuilder()
-        .setCustomId('correct_kills')
-        .setLabel('Correct Kills')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('Actual kills')
-        .setRequired(true);
+        const manualWin = new ButtonBuilder()
+          .setCustomId(`openform_win_${interaction.user.id}`)
+          .setLabel('Enter Correct Stats (WIN)')
+          .setStyle(ButtonStyle.Success);
 
-      const deathsInput = new TextInputBuilder()
-        .setCustomId('correct_deaths')
-        .setLabel('Correct Deaths')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('Actual deaths')
-        .setRequired(true);
+        const manualLoss = new ButtonBuilder()
+          .setCustomId(`openform_loss_${interaction.user.id}`)
+          .setLabel('Enter Correct Stats (LOSS)')
+          .setStyle(ButtonStyle.Secondary);
 
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(killsInput),
-        new ActionRowBuilder().addComponents(deathsInput)
-      );
+        const denyButton = new ButtonBuilder()
+          .setCustomId(`deny_none_${interaction.user.id}`)
+          .setLabel('Reject Dispute')
+          .setStyle(ButtonStyle.Danger);
 
-      await interaction.showModal(modal);
-      return;
+        const row = new ActionRowBuilder().addComponents(manualWin, manualLoss, denyButton);
+
+        const embed = new EmbedBuilder()
+          .setTitle('⚠️ Match Dispute Flagged')
+          .setColor(0xe74c3c)
+          .setDescription(`Player <@${interaction.user.id}> reported incorrect stats for their match.\n\nStaff please inspect the screenshot and update stats below.`)
+          .setImage(imageUrl || null);
+
+        await reviewChannel.send({
+          content: `<@&${STAFF_ROLE_ID}> 🚨 **Dispute Flagged by Player**`,
+          embeds: [embed],
+          components: [row]
+        }).catch(() => null);
+      }
+
+      return interaction.reply({ 
+        content: '⚠️ Match dispute submitted! A staff member will review and update your stats shortly.', 
+        ephemeral: true 
+      });
     }
 
     const [action, outcome, playerId] = interaction.customId.split('_');
 
     if (action === 'deny') {
+      if (!isStaff(interaction.member)) {
+        return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
+      }
       await interaction.message.delete().catch(() => null);
-      return interaction.reply({ content: '❌ Submission cleared.', ephemeral: true });
+      return interaction.reply({ content: '❌ Match submission rejected.', ephemeral: true });
     }
 
     if (action === 'openform') {
@@ -276,7 +294,7 @@ client.on('interactionCreate', async (interaction) => {
       }
       const modal = new ModalBuilder()
         .setCustomId(`statsmodal_${outcome}_${playerId}`)
-        .setTitle('Enter Match Statistics');
+        .setTitle('Enter Correct Match Statistics');
 
       const killsInput = new TextInputBuilder()
         .setCustomId('modal_kills')
@@ -300,22 +318,15 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // 3. Modal Submission
+  // 3. Modal Submission (Staff entering stats)
   if (interaction.isModalSubmit()) {
     const [prefix, outcome, playerId] = interaction.customId.split('_');
 
-    if (prefix === 'submit_dispute') {
-      await interaction.reply({ content: '⚠️ Dispute submitted to staff for manual review!', ephemeral: true });
-      const reviewChannel = await client.channels.fetch(REVIEW_CHANNEL_ID).catch(() => null);
-      if (reviewChannel) {
-        const k = interaction.fields.getTextInputValue('correct_kills');
-        const d = interaction.fields.getTextInputValue('correct_deaths');
-        await reviewChannel.send(`<@&${STAFF_ROLE_ID}> ⚠️ **Match Disputed by <@${interaction.user.id}>**\nClaimed Stats: ${k} Kills / ${d} Deaths`);
-      }
-      return;
-    }
-
     if (prefix === 'statsmodal') {
+      if (!isStaff(interaction.member)) {
+        return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
+      }
+
       const kills = parseInt(interaction.fields.getTextInputValue('modal_kills'), 10);
       const deaths = parseInt(interaction.fields.getTextInputValue('modal_deaths'), 10);
 
