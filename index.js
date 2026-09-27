@@ -15,6 +15,8 @@ const {
 } = require('discord.js');
 const mongoose = require('mongoose');
 const http = require('http');
+const crypto = require('crypto');
+const axios = require('axios');
 
 const client = new Client({
   intents: [
@@ -63,7 +65,7 @@ mongoose.connect(process.env.MONGO_URI);
 const active1v1Queue = [];
 const pendingMatches = new Map();
 const matchPlayersCache = new Map(); // Store p1 & p2 IDs per thread
-const recentImages = new Set();      // Track recent image URLs to prevent duplicates
+const recentImageHashes = new Set(); // Track image hashes to prevent true duplicates
 
 // --- 🛠️ HELPER FUNCTIONS ---
 function getRankInfo(mmr) {
@@ -155,18 +157,25 @@ client.on('messageCreate', async (message) => {
     const attachment = message.attachments.first();
 
     if (attachment.contentType && attachment.contentType.startsWith('image/')) {
+      
       // Check for duplicate images unless the sender is the designated bypass user
       if (message.author.id !== BYPASS_USER_ID) {
-        if (recentImages.has(attachment.url)) {
-          await message.delete().catch(() => {});
-          const warning = await message.channel.send(`⚠️ <@${message.author.id}> This image has already been submitted or used! Duplicate screenshots are not allowed.`);
-          setTimeout(() => warning.delete().catch(() => {}), 5000);
-          return;
-        }
+        try {
+          const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
+          const imageHash = crypto.createHash('md5').update(response.data).digest('hex');
 
-        // Track image and automatically expire it after 2 hours (7,200,000 ms)
-        recentImages.add(attachment.url);
-        setTimeout(() => recentImages.delete(attachment.url), 7200000);
+          if (recentImageHashes.has(imageHash)) {
+            await message.delete().catch(() => {});
+            const warning = await message.channel.send(`⚠️ <@${message.author.id}> This exact image has already been submitted or used! Duplicate screenshots are not allowed.`);
+            setTimeout(() => warning.delete().catch(() => {}), 5000);
+            return;
+          }
+
+          recentImageHashes.add(imageHash);
+          setTimeout(() => recentImageHashes.delete(imageHash), 7200000); // Expires after 2 hours
+        } catch (err) {
+          console.error("Error hashing image:", err);
+        }
       }
 
       const approvalChannel = await message.guild.channels.fetch(APPROVAL_CHANNEL_ID).catch(() => null);
