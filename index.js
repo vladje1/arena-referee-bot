@@ -79,14 +79,17 @@ function generateRoomCode() {
 async function updatePlayerRole(guild, member, currentMmr) {
   if (!member) return null;
   const targetRank = getRankInfo(currentMmr);
-  const hasTarget = member.roles.cache.has(targetRank.id);
+  
+  // Find all rank roles the user currently has that do NOT match their new rank
   const rolesToRemove = RANK_ROLES.filter(rank => rank.id !== targetRank.id && member.roles.cache.has(rank.id));
 
+  // Remove old rank roles if they have them
   if (rolesToRemove.length > 0) {
     await Promise.all(rolesToRemove.map(rank => member.roles.remove(rank.id).catch(() => null)));
   }
 
-  if (!hasTarget) {
+  // Add the new target rank role if they don't have it yet
+  if (!member.roles.cache.has(targetRank.id)) {
     await member.roles.add(targetRank.id).catch(() => null);
     return targetRank.name;
   }
