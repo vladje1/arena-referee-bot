@@ -169,9 +169,13 @@ client.on('messageCreate', async (message) => {
           .setDescription(`**Submitter:** <@${message.author.id}>\n**Thread:** <#${message.channel.id}>\n**Jump:** [Message Link](${message.url})`);
 
         if (players[1]) {
+          // Fetch user objects to pull actual usernames for the button labels
+          const user1 = await client.users.fetch(players[0]).catch(() => ({ username: 'Player 1' }));
+          const user2 = await client.users.fetch(players[1]).catch(() => ({ username: 'Player 2' }));
+
           actionRow.addComponents(
-            new ButtonBuilder().setCustomId(`thread_win_${players[0]}_${players[1]}_${message.channel.id}`).setLabel('Win Player 1').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`thread_win_${players[1]}_${players[0]}_${message.channel.id}`).setLabel('Win Player 2').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`thread_win_${players[0]}_${players[1]}_${message.channel.id}`).setLabel(`Grade ${user1.username} Win`).setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`thread_win_${players[1]}_${players[0]}_${message.channel.id}`).setLabel(`Grade ${user2.username} Win`).setStyle(ButtonStyle.Success),
             new ButtonBuilder().setCustomId(`approve_reject_${message.channel.id}`).setLabel('❌ Reject').setStyle(ButtonStyle.Danger)
           );
         } else {
@@ -383,7 +387,6 @@ client.on('interactionCreate', async (interaction) => {
         await sourceChannel.send('❌ Your match submission was rejected by staff.');
       }
 
-      // Automatically delete the approval message after rejection too
       await interaction.message.delete().catch(() => {});
     }
 
@@ -547,7 +550,6 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // Delete the approval message from #approve channel
       await interaction.message.delete().catch(() => {});
     }
 
@@ -602,7 +604,6 @@ client.on('interactionCreate', async (interaction) => {
         await sourceChannel.send({ embeds: [resultEmbed] });
       }
 
-      // Delete the approval message from #approve channel
       await interaction.message.delete().catch(() => {});
     }
   }
@@ -663,13 +664,26 @@ async function launch1v1Thread(matchData) {
       `**Instructions:**\n` +
       `1. Join Animal Company using code **${roomCode}**.\n` +
       `2. Upload screenshot in this thread.\n` +
-      `3. Staff will review and grade both players in <#${APPROVAL_CHANNEL_ID}>.`
+      `3. Staff will review and grade both players in <#${APPROVAL_CHANNEL_ID}>.\n\n` +
+      `⏳ *This thread will automatically delete in 1 hour.*`
     );
 
   await thread.send({ 
     content: `<@${p1.userId}> vs <@${p2.userId}>`, 
     embeds: [embed]
   });
+
+  // ⏰ AUTO-DELETE THREAD AFTER 1 HOUR (3,600,000 ms)
+  setTimeout(async () => {
+    try {
+      matchPlayersCache.delete(thread.id);
+      if (!thread.deleted) {
+        await thread.delete('Match thread expired after 1 hour.');
+      }
+    } catch (err) {
+      console.error(`Failed to auto-delete thread ${thread.id}:`, err);
+    }
+  }, 3600000);
 }
 
 // --- 🌐 WEB SERVER & BOT LOGIN ---
