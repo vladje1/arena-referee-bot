@@ -106,14 +106,15 @@ async function analyzeScoreboardWithAI(imageUrl) {
     const base64Data = Buffer.from(arrayBuffer).toString('base64');
     const mimeType = imageResp.headers.get('content-type') || 'image/png';
 
-    const prompt = `Analyze the digital watch screen in this VR screenshot.
-1. Read HP at the top (e.g. 200). If HP > 0, outcome is 'win', else 'loss'.
-2. Read Kills (K) next to the 'K' icon or letter (e.g. 19).
-3. Read Deaths (D) next to the 'D' icon or letter (e.g. 4).
+    const prompt = `Analyze the digital watch/display in this VR screenshot.
+1. Read HP at the top (e.g. 160). If HP > 0, set outcome to 'win', otherwise 'loss'.
+2. Read Kills (K) displayed on screen (e.g. 25).
+3. Read Deaths (D) displayed on screen (e.g. 2).
 
-Respond ONLY with raw JSON. No Markdown formatting or extra text. Example: {"outcome": "win", "kills": 19, "deaths": 4}`;
+Return ONLY a valid JSON object without any additional text or markdown formatting.
+Example format: {"outcome": "win", "kills": 25, "deaths": 2}`;
 
-    const model = genAI.getGenerativeModel({ model: "gemini-3.8-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const result = await model.generateContent([
       prompt,
@@ -128,14 +129,17 @@ Respond ONLY with raw JSON. No Markdown formatting or extra text. Example: {"out
     const responseText = result.response.text();
     console.log("🤖 Raw Gemini Output:", responseText);
 
-    const cleaned = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    const jsonMatch = cleaned.match(/\{[\s\S]*?\}/);
+    const jsonMatch = responseText.match(/\{[\s\S]*?\}/);
 
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       if (parsed.outcome && parsed.kills !== undefined && parsed.deaths !== undefined) {
         console.log("✅ Gemini Vision Success:", parsed);
-        return parsed;
+        return {
+          outcome: String(parsed.outcome).toLowerCase(),
+          kills: parseInt(parsed.kills, 10) || 0,
+          deaths: parseInt(parsed.deaths, 10) || 0
+        };
       }
     }
 
@@ -235,7 +239,6 @@ client.on('interactionCreate', async (interaction) => {
 
   // 2. Button Interactions
   if (interaction.isButton()) {
-    // Player triggers a dispute report -> forwards directly to staff channel
     if (interaction.customId.startsWith('report_match_')) {
       const reviewChannel = await client.channels.fetch(REVIEW_CHANNEL_ID).catch(() => null);
       
@@ -371,7 +374,6 @@ client.on('interactionCreate', async (interaction) => {
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
-  // STRICT CHANNEL FILTER: Ignore everything outside the designated upload channel
   if (message.channel.id !== UPLOAD_CHANNEL_ID) return;
 
   const attachment = message.attachments.first();
@@ -435,7 +437,6 @@ client.on('messageCreate', async (message) => {
       }).catch(() => null);
     }
   } else {
-    // AI failed — send review request to the review channel with staff ping
     const manualWin = new ButtonBuilder()
       .setCustomId(`openform_win_${message.author.id}`)
       .setLabel('Enter Stats (WIN)')
@@ -459,13 +460,11 @@ client.on('messageCreate', async (message) => {
       .setDescription(`Player <@${message.author.id}> submitted a screenshot that AI could not read cleanly.\n\nPlease review the image below and select an option:`)
       .setImage(attachment.url);
 
-    // Reply to player in the upload channel
     await Promise.all([
       message.reply('❌ AI could not process this image clearly. Sent to staff for review!'),
       message.react('❌')
     ]).catch(() => null);
 
-    // Send the review card with staff role ping to review channel
     if (reviewChannel) {
       await reviewChannel.send({
         content: `<@&${STAFF_ROLE_ID}> ⚠️ **Manual Review Requested**`,
