@@ -113,7 +113,7 @@ async function analyzeScoreboardWithAI(imageUrl) {
 
 Respond ONLY with raw JSON. No Markdown formatting or extra text. Example: {"outcome": "win", "kills": 19, "deaths": 4}`;
 
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const result = await model.generateContent([
       prompt,
