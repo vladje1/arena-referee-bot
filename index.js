@@ -14,7 +14,7 @@ const mongoose = require('mongoose');
 const http = require('http');
 
 // --- 🤖 GOOGLE GEMINI AI INITIALIZATION ---
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const client = new Client({
@@ -91,7 +91,7 @@ function isStaff(member) {
   return member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID);
 }
 
-// --- 🚀 GOOGLE GEMINI VISION SCANNER WITH RETRY LOGIC ---
+// --- 🚀 GOOGLE GEMINI VISION SCANNER ---
 async function analyzeScoreboardWithAI(imageUrl, retries = 2) {
   try {
     console.log("🔍 Fetching image for Gemini Vision processing...");
@@ -106,15 +106,27 @@ async function analyzeScoreboardWithAI(imageUrl, retries = 2) {
     const base64Data = Buffer.from(arrayBuffer).toString('base64');
     const mimeType = imageResp.headers.get('content-type') || 'image/png';
 
-    const prompt = `Analyze the digital wrist watch screen in this VR screenshot.
-1. Read HP at the top (e.g. 200, 160). If HP > 0, outcome is 'win', otherwise 'loss'.
-2. Read Kills (K) displayed in digital 7-segment numbers next to 'K'.
-3. Read Deaths (D) displayed in digital 7-segment numbers next to 'D'.
+    const prompt = `Look closely at the digital wrist watch in this VR game screenshot.
+1. Read the HP value displayed at the top next to "HP" (e.g., 160 or 200). If HP is greater than 0, set outcome to "win", otherwise "loss".
+2. Read the digital 7-segment number displayed next to "K" for Kills.
+3. Read the digital 7-segment number displayed next to "D" for Deaths.`;
 
-Return ONLY raw JSON with keys outcome, kills, deaths.
-Example: {"outcome": "win", "kills": 8, "deaths": 4}`;
-
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // Enforce exact JSON response schema
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash",
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: SchemaType.OBJECT,
+          properties: {
+            outcome: { type: SchemaType.STRING, description: "Must be 'win' or 'loss'" },
+            kills: { type: SchemaType.INTEGER, description: "Number of kills" },
+            deaths: { type: SchemaType.INTEGER, description: "Number of deaths" }
+          },
+          required: ["outcome", "kills", "deaths"]
+        }
+      }
+    });
 
     const result = await model.generateContent([
       prompt,
@@ -129,28 +141,24 @@ Example: {"outcome": "win", "kills": 8, "deaths": 4}`;
     const responseText = result.response.text();
     console.log("🤖 Raw Gemini Output:", responseText);
 
-    const jsonMatch = responseText.match(/\{[\s\S]*?\}/);
+    const parsed = JSON.parse(responseText);
 
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed.outcome && parsed.kills !== undefined && parsed.deaths !== undefined) {
-        console.log("✅ Gemini Vision Success:", parsed);
-        return {
-          outcome: String(parsed.outcome).toLowerCase(),
-          kills: parseInt(parsed.kills, 10) || 0,
-          deaths: parseInt(parsed.deaths, 10) || 0
-        };
-      }
+    if (parsed && parsed.outcome && parsed.kills !== undefined && parsed.deaths !== undefined) {
+      console.log("✅ Gemini Vision Success:", parsed);
+      return {
+        outcome: String(parsed.outcome).toLowerCase() === 'win' ? 'win' : 'loss',
+        kills: parseInt(parsed.kills, 10) || 0,
+        deaths: parseInt(parsed.deaths, 10) || 0
+      };
     }
 
-    console.error("⚠️ Couldn't parse valid JSON from Gemini output.");
+    console.error("⚠️ Response didn't contain required fields.");
     return null;
 
   } catch (err) {
-    console.error("❌ Gemini API Error Details:", err.message);
+    console.error("❌ Gemini API Error Details:", err);
 
-    // If rate limited (429) and retries remain, wait 2 seconds and try again
-    if (retries > 0 && (err.message.includes('429') || err.message.includes('Quota') || err.message.includes('ResourceExhausted'))) {
+    if (retries > 0 && (err.message?.includes('429') || err.message?.includes('Quota') || err.message?.includes('ResourceExhausted'))) {
       console.log(`⏳ Rate limit reached. Retrying in 2 seconds... (${retries} retries left)`);
       await new Promise(res => setTimeout(res, 2000));
       return analyzeScoreboardWithAI(imageUrl, retries - 1);
