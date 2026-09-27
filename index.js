@@ -71,7 +71,6 @@ async function updatePlayerRole(guild, member, currentMmr) {
   const hasTarget = member.roles.cache.has(targetRank.id);
   const rolesToRemove = RANK_ROLES.filter(rank => rank.id !== targetRank.id && member.roles.cache.has(rank.id));
 
-  // Run role removals concurrently for speed
   if (rolesToRemove.length > 0) {
     await Promise.all(rolesToRemove.map(rank => member.roles.remove(rank.id).catch(() => null)));
   }
@@ -91,7 +90,7 @@ function isStaff(member) {
 // --- 🚀 FAST AI SCANNING FUNCTION ---
 async function analyzeScoreboardWithAI(imageUrl) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12000); // 12-second timeout limit
+  const timeoutId = setTimeout(() => controller.abort(), 12000);
 
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -105,7 +104,7 @@ async function analyzeScoreboardWithAI(imageUrl) {
       },
       body: JSON.stringify({
         model: "openrouter/free",
-        max_tokens: 60, // Limit tokens for faster inference response time
+        max_tokens: 60,
         messages: [
           {
             role: "user",
@@ -299,7 +298,7 @@ client.on('interactionCreate', async (interaction) => {
       if (reviewChannel) {
         const k = interaction.fields.getTextInputValue('correct_kills');
         const d = interaction.fields.getTextInputValue('correct_deaths');
-        await reviewChannel.send(`⚠️ **Match Disputed by <@${interaction.user.id}>**\nClaimed Stats: ${k} Kills / ${d} Deaths`);
+        await reviewChannel.send(`<@&${STAFF_ROLE_ID}> ⚠️ **Match Disputed by <@${interaction.user.id}>**\nClaimed Stats: ${k} Kills / ${d} Deaths`);
       }
       return;
     }
@@ -352,7 +351,6 @@ client.on('messageCreate', async (message) => {
   const attachment = message.attachments.first();
   if (!attachment || !attachment.contentType?.startsWith('image/')) return;
 
-  // Show immediate processing feedback
   const processingEmoji = await message.react('⏳').catch(() => null);
 
   const [reviewChannel, aiResult] = await Promise.all([
@@ -360,7 +358,6 @@ client.on('messageCreate', async (message) => {
     analyzeScoreboardWithAI(attachment.url)
   ]);
 
-  // Remove processing status emoji
   if (processingEmoji) await message.reactions.cache.get('⏳')?.users.remove(client.user.id).catch(() => null);
 
   if (aiResult && aiResult.outcome) {
@@ -412,7 +409,7 @@ client.on('messageCreate', async (message) => {
       }).catch(() => null);
     }
   } else {
-    // AI failed - prompt manual entry
+    // AI failed — send review request to the review channel with staff ping
     const manualWin = new ButtonBuilder()
       .setCustomId(`openform_win_${message.author.id}`)
       .setLabel('Enter Stats (WIN)')
@@ -423,18 +420,33 @@ client.on('messageCreate', async (message) => {
       .setLabel('Enter Stats (LOSS)')
       .setStyle(ButtonStyle.Secondary);
 
-    const row = new ActionRowBuilder().addComponents(manualWin, manualLoss);
+    const denyButton = new ButtonBuilder()
+      .setCustomId(`deny_none_${message.author.id}`)
+      .setLabel('Reject Match')
+      .setStyle(ButtonStyle.Danger);
+
+    const row = new ActionRowBuilder().addComponents(manualWin, manualLoss, denyButton);
 
     const embed = new EmbedBuilder()
-      .setTitle('🔍 Manual Review Needed')
+      .setTitle('🔍 Manual Review Required')
       .setColor(0xf1c40f)
-      .setDescription('AI was unable to process the image automatically. Staff can submit stats manually using the buttons below.')
+      .setDescription(`Player <@${message.author.id}> submitted a screenshot that AI could not read cleanly.\n\nPlease review the image below and select an option:`)
       .setImage(attachment.url);
 
+    // Reply to player in the upload channel
     await Promise.all([
-      message.reply({ embeds: [embed], components: [row] }),
+      message.reply('❌ AI could not process this image clearly. Sent to staff for review!'),
       message.react('❌')
     ]).catch(() => null);
+
+    // Send the review card with staff role ping to review channel
+    if (reviewChannel) {
+      await reviewChannel.send({
+        content: `<@&${STAFF_ROLE_ID}> ⚠️ **Manual Review Requested**`,
+        embeds: [embed],
+        components: [row]
+      }).catch(() => null);
+    }
   }
 });
 
