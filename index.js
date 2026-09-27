@@ -92,7 +92,7 @@ function isStaff(member) {
 }
 
 // --- 🚀 GOOGLE GEMINI VISION SCANNER ---
-async function analyzeScoreboardWithAI(imageUrl, retries = 2) {
+async function analyzeScoreboardWithAI(imageUrl, retries = 3) {
   try {
     console.log("🔍 Fetching image for Gemini Vision processing...");
 
@@ -157,9 +157,15 @@ async function analyzeScoreboardWithAI(imageUrl, retries = 2) {
   } catch (err) {
     console.error("❌ Gemini API Error Details:", err);
 
-    if (retries > 0 && (err.message?.includes('429') || err.message?.includes('Quota') || err.message?.includes('ResourceExhausted'))) {
-      console.log(`⏳ Rate limit reached. Retrying in 2 seconds... (${retries} retries left)`);
-      await new Promise(res => setTimeout(res, 2000));
+    // Handles 503 Service Unavailable, 429 Rate Limit, and Quota errors with automatic retries
+    if (retries > 0 && (
+      err.message?.includes('503') || 
+      err.message?.includes('429') || 
+      err.message?.includes('Quota') || 
+      err.message?.includes('ResourceExhausted')
+    )) {
+      console.log(`⏳ Server busy or rate limited. Retrying in 3 seconds... (${retries} retries left)`);
+      await new Promise(res => setTimeout(res, 3000));
       return analyzeScoreboardWithAI(imageUrl, retries - 1);
     }
 
