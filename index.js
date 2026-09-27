@@ -87,7 +87,7 @@ function isStaff(member) {
   return member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID);
 }
 
-// --- 🚀 FAST AI SCANNING FUNCTION ---
+// --- 🚀 FIXED & RELIABLE VISION AI FUNCTION ---
 async function analyzeScoreboardWithAI(imageUrl) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 12000);
@@ -103,15 +103,20 @@ async function analyzeScoreboardWithAI(imageUrl) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "openrouter/free",
-        max_tokens: 60,
+        // 1. Explicitly target a FREE Vision-capable model
+        model: "google/gemini-2.0-flash-lite-001:free", 
+        max_tokens: 150,
         messages: [
           {
             role: "user",
             content: [
               {
                 type: "text",
-                text: "Read the watch screen VR image.\n1. HP above 0 = 'win', else 'loss'.\n2. Read top number Kills (K).\n3. Read bottom number Deaths (D).\nReturn raw JSON: {\"outcome\": \"win\", \"kills\": 0, \"deaths\": 0}"
+                text: "Look at the watch screen in this VR screenshot.\n" +
+                      "1. HP at top (e.g. 200). If HP > 0, outcome is 'win', else 'loss'.\n" +
+                      "2. Kills (K) is the top number next to 'K'.\n" +
+                      "3. Deaths (D) is the bottom number next to 'D'.\n\n" +
+                      "Respond ONLY with a valid JSON object. No extra text, no markdown formatting. Example: {\"outcome\": \"win\", \"kills\": 19, \"deaths\": 4}"
               },
               {
                 type: "image_url",
@@ -125,13 +130,27 @@ async function analyzeScoreboardWithAI(imageUrl) {
 
     clearTimeout(timeoutId);
     const data = await response.json();
-    if (!data?.choices?.[0]?.message) return null;
 
-    const jsonMatch = data.choices[0].message.content.match(/\{[\s\S]*?\}/);
-    return jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+    if (!data?.choices?.[0]?.message?.content) {
+      console.error("AI API returned empty response:", JSON.stringify(data));
+      return null;
+    }
+
+    const content = data.choices[0].message.content;
+
+    // Clean up response if the model included markdown code blocks
+    const cleanedContent = content.replace(/```json/g, '').replace(/```/g, '').trim();
+    const jsonMatch = cleanedContent.match(/\{[\s\S]*?\}/);
+
+    if (!jsonMatch) {
+      console.error("Could not parse JSON from AI response:", content);
+      return null;
+    }
+
+    return JSON.parse(jsonMatch[0]);
   } catch (err) {
     clearTimeout(timeoutId);
-    console.error("AI Scan Error/Timeout:", err.message);
+    console.error("AI Vision Scan Error:", err.message);
     return null;
   }
 }
