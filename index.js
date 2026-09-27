@@ -382,6 +382,9 @@ client.on('interactionCreate', async (interaction) => {
       if (sourceChannel) {
         await sourceChannel.send('❌ Your match submission was rejected by staff.');
       }
+
+      // Automatically delete the approval message after rejection too
+      await interaction.message.delete().catch(() => {});
     }
 
     // --- THREAD WIN BUTTON: Asks for BOTH user IDs and BOTH teams Kills/Deaths ---
@@ -543,6 +546,9 @@ client.on('interactionCreate', async (interaction) => {
           await sourceChannel.setArchived(true).catch(() => null);
         }
       }
+
+      // Delete the approval message from #approve channel
+      await interaction.message.delete().catch(() => {});
     }
 
     // --- PUBS (#match-results) MODAL SUBMISSION ---
@@ -595,6 +601,9 @@ client.on('interactionCreate', async (interaction) => {
       if (sourceChannel) {
         await sourceChannel.send({ embeds: [resultEmbed] });
       }
+
+      // Delete the approval message from #approve channel
+      await interaction.message.delete().catch(() => {});
     }
   }
 });
