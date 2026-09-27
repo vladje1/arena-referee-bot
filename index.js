@@ -87,18 +87,18 @@ function isStaff(member) {
   return member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID);
 }
 
-// --- 🚀 ROBUST VISION AI WITH FALLBACKS ---
+// --- 🚀 ROBUST VISION AI WITH VALID MODEL ENDPOINTS ---
 async function analyzeScoreboardWithAI(imageUrl) {
-  // List of free vision models to attempt in order
+  // Currently active OpenRouter models capable of image processing
   const VISION_MODELS = [
-    "google/gemini-2.0-flash-lite-001:free",
-    "google/gemini-2.0-pro-exp-02-05:free",
-    "meta-llama/llama-3.2-11b-vision-instruct:free"
+    "google/gemini-2.0-flash-001",
+    "meta-llama/llama-3.2-90b-vision-instruct:free",
+    "google/gemini-flash-1.5-8b"
   ];
 
   for (const modelName of VISION_MODELS) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
 
     try {
       console.log(`🔍 Attempting AI scan with model: ${modelName}`);
@@ -114,17 +114,18 @@ async function analyzeScoreboardWithAI(imageUrl) {
         },
         body: JSON.stringify({
           model: modelName,
-          max_tokens: 150,
+          max_tokens: 120,
           messages: [
             {
               role: "user",
               content: [
                 {
                   type: "text",
-                  text: "Analyze this VR watch screen image.\n" +
-                        "1. HP > 0 = 'win', HP <= 0 = 'loss'.\n" +
-                        "2. Read Kills (K) and Deaths (D).\n" +
-                        "Return ONLY raw JSON in this exact format: {\"outcome\": \"win\", \"kills\": 19, \"deaths\": 4}"
+                  text: "Examine the watch display screen in this VR image.\n" +
+                        "1. Read the HP value at the top. If HP > 0, outcome is 'win', else 'loss'.\n" +
+                        "2. Read Kills next to 'K' (e.g. 19).\n" +
+                        "3. Read Deaths next to 'D' (e.g. 4).\n" +
+                        "Return strictly raw JSON format without markdown code blocks: {\"outcome\": \"win\", \"kills\": 19, \"deaths\": 4}"
                 },
                 {
                   type: "image_url",
@@ -141,38 +142,36 @@ async function analyzeScoreboardWithAI(imageUrl) {
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`⚠️ Model ${modelName} HTTP Error ${response.status}:`, errorText);
-        continue; // Try next model in list
+        continue;
       }
 
       const data = await response.json();
       const content = data?.choices?.[0]?.message?.content;
 
       if (!content) {
-        console.error(`⚠️ Model ${modelName} returned empty content.`);
+        console.error(`⚠️ Model ${modelName} returned empty response.`);
         continue;
       }
 
-      // Clean markdown fences (```json ... ```)
       const cleaned = content.replace(/```json/gi, '').replace(/```/g, '').trim();
       const jsonMatch = cleaned.match(/\{[\s\S]*?\}/);
 
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
         if (parsed.outcome && parsed.kills !== undefined && parsed.deaths !== undefined) {
-          console.log(`✅ AI successfully scanned using ${modelName}:`, parsed);
+          console.log(`✅ AI scan success via ${modelName}:`, parsed);
           return parsed;
         }
       }
 
-      console.error(`⚠️ Could not parse valid JSON from response: "${content}"`);
+      console.error(`⚠️ Failed parsing JSON output: "${content}"`);
     } catch (err) {
       clearTimeout(timeoutId);
-      console.error(`❌ Error with ${modelName}:`, err.message);
+      console.error(`❌ Error executing ${modelName}:`, err.message);
     }
   }
 
-  // All model attempts failed
-  console.error("❌ All vision model attempts failed to read image.");
+  console.error("❌ All configured vision model endpoints failed.");
   return null;
 }
 
