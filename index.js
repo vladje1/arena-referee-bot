@@ -235,28 +235,52 @@ client.on('interactionCreate', async (interaction) => {
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
-  if (message.attachments.size > 0 && message.channel.id === UPLOAD_CHANNEL_ID) {
-    const attachment = message.attachments.first();
-    if (!attachment.contentType?.startsWith('image/')) return;
+  const attachment = message.attachments.first();
+  if (!attachment || !attachment.contentType?.startsWith('image/')) return;
 
-    await message.react('🔍').catch(() => null);
+  const aiResult = await analyzeScoreboardWithAI(attachment.url);
 
-    const aiResult = await analyzeScoreboardWithAI(attachment.url);
+  if (aiResult) {
+    const reportButton = new ButtonBuilder()
+      .setCustomId(`report_match_${message.id}`)
+      .setLabel('⚠️ Report Wrong Stats')
+      .setStyle(ButtonStyle.Danger);
 
-    const reviewChannel = await client.channels.fetch(REVIEW_CHANNEL_ID).catch(() => null);
+    const row = new ActionRowBuilder().addComponents(reportButton);
 
-    if (!aiResult) {
-      if (reviewChannel) {
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`openform_win_${message.author.id}`).setLabel('🏆 Enter Stats (WIN)').setStyle(ButtonStyle.Success),
-          new ButtonBuilder().setCustomId(`openform_loss_${message.author.id}`).setLabel('💀 Enter Stats (LOSS)').setStyle(ButtonStyle.Danger),
-          new ButtonBuilder().setCustomId(`deny_match_${message.author.id}`).setLabel('❌ Reject Image').setStyle(ButtonStyle.Secondary)
-        );
-        await reviewChannel.send({
-          content: `⚠️ **AI Vision could not process image clearly.**\n👤 **Player:** <@${message.author.id}>\n🔗 **Proof:** ${attachment.url}`,
-          components: [row]
-        });
-      }
+    const embed = new EmbedBuilder()
+      .setTitle('🤖 Auto-Graded Match Result')
+      .setColor(aiResult.outcome === 'win' ? 0x2ecc71 : 0xe74c3c)
+      .setDescription(
+        `**Result:** ${aiResult.outcome.toUpperCase()}\n` +
+        `**Kills:** ${aiResult.kills} | **Deaths:** ${aiResult.deaths}\n\n` +
+        `*Notice an AI error? Click below to dispute these stats.*`
+      )
+      .setThumbnail(attachment.url);
+
+    await message.reply({ embeds: [embed], components: [row] });
+  } else {
+    const manualWin = new ButtonBuilder()
+      .setCustomId(`manual_win_${message.id}`)
+      .setLabel('Enter Stats (WIN)')
+      .setStyle(ButtonStyle.Success);
+
+    const manualLoss = new ButtonBuilder()
+      .setCustomId(`manual_loss_${message.id}`)
+      .setLabel('Enter Stats (LOSS)')
+      .setStyle(ButtonStyle.Secondary);
+
+    const row = new ActionRowBuilder().addComponents(manualWin, manualLoss);
+
+    const embed = new EmbedBuilder()
+      .setTitle('🔍 Manual Review Needed')
+      .setColor(0xf1c40f)
+      .setDescription('AI could not read the watch clearly. Please input stats manually:')
+      .setImage(attachment.url);
+
+    await message.reply({ embeds: [embed], components: [row] });
+  }
+});
       await message.reactions.removeAll().catch(() => null);
       await message.react('❓').catch(() => null);
       return;
