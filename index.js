@@ -106,7 +106,8 @@ async function analyzeScoreboardWithAI(imageUrl) {
     const base64Data = Buffer.from(arrayBuffer).toString('base64');
     const mimeType = imageResp.headers.get('content-type') || 'image/png';
 
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    // Using stable gemini-1.5-flash endpoint for generative vision calls
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const prompt = `Analyze the digital watch screen in this VR screenshot.
 1. Read HP at the top (e.g. 200). If HP > 0, outcome is 'win', else 'loss'.
