@@ -26,8 +26,10 @@ const client = new Client({
 });
 
 // --- ⚙️ CONFIGURATION ---
-const QUEUE_CHANNEL_ID = '1553779380218630264'; // Ranked Queue & Match Threads Channel
-const STAFF_ROLE_ID = '1553324535128916070';    // Grader / Staff Role
+const QUEUE_CHANNEL_ID = '1553779380218630264';         // Ranked Queue & Match Threads Channel
+const MATCH_RESULTS_CHANNEL_ID = '1553172302420643950'; // #match-results Channel
+const APPROVAL_CHANNEL_ID = '1553177031523700838';      // #approve Channel (Staff Review)
+const STAFF_ROLE_ID = '1553324535128916070';            // Grader / Staff Role
 
 // --- 📊 COMPETITIVE RANK ROLES ---
 const RANK_ROLES = [
@@ -90,7 +92,7 @@ function isStaff(member) {
   return member && (member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID));
 }
 
-// --- 🎛️ ALL SLASH COMMAND DEFINITIONS ---
+// --- 🎛️ SLASH COMMANDS ---
 const commands = [
   new SlashCommandBuilder()
     .setName('create-profile')
@@ -103,41 +105,80 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName('leaderboard')
-    .setDescription('Display the top 10 players currently leading the Arena standings.'),
+    .setDescription('Display top 10 Arena standings.'),
 
   new SlashCommandBuilder()
     .setName('stats')
-    .setDescription('View an Arena match record dossier profile.')
-    .addUserOption(opt => opt.setName('target').setDescription('Player to view stats for (Optional)').setRequired(false)),
+    .setDescription('View Arena profile.')
+    .addUserOption(opt => opt.setName('target').setDescription('Player (Optional)').setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('addmmr')
-    .setDescription('Staff Only: Manually add a specific amount of MMR to a player.')
+    .setDescription('Staff Only: Add MMR')
     .addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true))
-    .addNumberOption(opt => opt.setName('amount').setDescription('Amount of MMR to add').setRequired(true)),
+    .addNumberOption(opt => opt.setName('amount').setDescription('Amount').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('removemmr')
-    .setDescription('Staff Only: Deduct a specific amount of MMR from a player.')
+    .setDescription('Staff Only: Remove MMR')
     .addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true))
-    .addNumberOption(opt => opt.setName('amount').setDescription('Amount of MMR to deduct').setRequired(true)),
+    .addNumberOption(opt => opt.setName('amount').setDescription('Amount').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('setmmr')
-    .setDescription('Staff Only: Override a player\'s MMR value to an exact number.')
+    .setDescription('Staff Only: Set exact MMR')
     .addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true))
-    .addNumberOption(opt => opt.setName('value').setDescription('Exact MMR value').setRequired(true)),
+    .addNumberOption(opt => opt.setName('value').setDescription('Exact value').setRequired(true)),
 
   new SlashCommandBuilder()
     .setName('clearallmmr')
-    .setDescription('Staff Only: Permanently wipe the competitive leaderboard database.')
+    .setDescription('Staff Only: Wipe database')
 ].map(c => c.toJSON());
 
-// --- 🤖 BOT READY ---
 client.once('ready', async () => {
   console.log(`✅ Animal Company Bot Ready as ${client.user.tag}`);
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   await rest.put(Routes.applicationCommands(client.user.id), { body: commands }).catch(console.error);
+});
+
+// --- 📩 DIRECT FORWARDING (SCREENSHOT → APPROVE) ---
+client.on('messageCreate', async (message) => {
+  if (message.author.bot) return;
+
+  const isMatchThread = message.channel.isThread() && message.channel.parentId === QUEUE_CHANNEL_ID;
+  const isMatchResultsChannel = message.channel.id === MATCH_RESULTS_CHANNEL_ID;
+
+  if ((isMatchThread || isMatchResultsChannel) && message.attachments.size > 0) {
+    const attachment = message.attachments.first();
+
+    if (attachment.contentType && attachment.contentType.startsWith('image/')) {
+      const approvalChannel = await message.guild.channels.fetch(APPROVAL_CHANNEL_ID).catch(() => null);
+      if (!approvalChannel) return;
+
+      const approveEmbed = new EmbedBuilder()
+        .setTitle('🔎 Match Result Pending Staff Approval')
+        .setColor(0xf1c40f)
+        .setDescription(
+          `**Submitted By:** <@${message.author.id}>\n` +
+          `**Channel/Thread:** <#${message.channel.id}>\n` +
+          `**Message Link:** [Jump to Message](${message.url})`
+        )
+        .setImage(attachment.url);
+
+      const gradeBtn = new ButtonBuilder()
+        .setCustomId(`open_grade_modal_${message.author.id}_${message.channel.id}`)
+        .setLabel('⚖️ Grade Match')
+        .setStyle(ButtonStyle.Primary);
+
+      const row = new ActionRowBuilder().addComponents(gradeBtn);
+
+      await approvalChannel.send({
+        content: `<@&${STAFF_ROLE_ID}> New match screenshot submitted for review:`,
+        embeds: [approveEmbed],
+        components: [row]
+      });
+    }
+  }
 });
 
 // --- 🎛️ INTERACTION HANDLER ---
@@ -264,7 +305,7 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // 2. Queue Buttons & Staff Modal Grading
+  // 2. Queue Buttons & Staff Grading Trigger
   if (interaction.isButton()) {
     if (interaction.customId === 'join_1v1_queue') {
       if (active1v1Queue.some(p => p.userId === interaction.user.id)) {
@@ -304,17 +345,31 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    // Staff Grader Button Action
-    if (interaction.customId.startsWith('grade_match_')) {
+    // Staff clicks "Grade Match" inside #approve
+    if (interaction.customId.startsWith('open_grade_modal_')) {
       if (!isStaff(interaction.member)) {
         return interaction.reply({ content: "❌ Access Denied: Grader/Staff permissions required.", ephemeral: true });
       }
 
-      const [, , winnerId, loserId] = interaction.customId.split('_');
+      const [, , submitterId, sourceChannelId] = interaction.customId.split('_');
 
       const modal = new ModalBuilder()
-        .setCustomId(`submit_grading_${winnerId}_${loserId}`)
-        .setTitle('Enter Winner Statistics');
+        .setCustomId(`process_approval_${submitterId}_${sourceChannelId}`)
+        .setTitle('Grade Match Result');
+
+      const winnerIdInput = new TextInputBuilder()
+        .setCustomId('modal_winner_id')
+        .setLabel('Winner Discord User ID / Mention')
+        .setPlaceholder('Enter Discord User ID of Winner')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      const loserIdInput = new TextInputBuilder()
+        .setCustomId('modal_loser_id')
+        .setLabel('Loser Discord User ID / Mention')
+        .setPlaceholder('Enter Discord User ID of Loser')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
 
       const killsInput = new TextInputBuilder()
         .setCustomId('modal_kills')
@@ -329,6 +384,8 @@ client.on('interactionCreate', async (interaction) => {
         .setRequired(true);
 
       modal.addComponents(
+        new ActionRowBuilder().addComponents(winnerIdInput),
+        new ActionRowBuilder().addComponents(loserIdInput),
         new ActionRowBuilder().addComponents(killsInput),
         new ActionRowBuilder().addComponents(deathsInput)
       );
@@ -337,26 +394,29 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // 3. Staff Modal Submission (Stats & MMR Update)
+  // 3. Staff Modal Submission (Approve Match)
   if (interaction.isModalSubmit()) {
-    if (interaction.customId.startsWith('submit_grading_')) {
+    if (interaction.customId.startsWith('process_approval_')) {
       if (!isStaff(interaction.member)) {
         return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
       }
 
-      const [, , winnerId, loserId] = interaction.customId.split('_');
+      const [, , submitterId, sourceChannelId] = interaction.customId.split('_');
+
+      const winnerRaw = interaction.fields.getTextInputValue('modal_winner_id').replace(/[<@!>]/g, '').trim();
+      const loserRaw = interaction.fields.getTextInputValue('modal_loser_id').replace(/[<@!>]/g, '').trim();
       const kills = parseInt(interaction.fields.getTextInputValue('modal_kills'), 10);
       const deaths = parseInt(interaction.fields.getTextInputValue('modal_deaths'), 10);
 
       if (isNaN(kills) || isNaN(deaths) || kills < 0 || deaths < 0) {
-        return interaction.reply({ content: '❌ Invalid numbers entered!', ephemeral: true });
+        return interaction.reply({ content: '❌ Invalid kills/deaths entered!', ephemeral: true });
       }
 
       await interaction.deferReply();
 
       // Update Winner
-      let winner = await Player.findOne({ userId: winnerId }) || new Player({ userId: winnerId });
-      const winUser = await client.users.fetch(winnerId).catch(() => null);
+      let winner = await Player.findOne({ userId: winnerRaw }) || new Player({ userId: winnerRaw });
+      const winUser = await client.users.fetch(winnerRaw).catch(() => null);
       if (winUser) winner.username = winUser.username;
 
       let winnerMmrChange = 7.5 + (kills * 0.20) - (deaths * 0.25);
@@ -367,36 +427,47 @@ client.on('interactionCreate', async (interaction) => {
       await winner.save();
 
       // Update Loser
-      let loser = await Player.findOne({ userId: loserId }) || new Player({ userId: loserId });
-      const loseUser = await client.users.fetch(loserId).catch(() => null);
+      let loser = await Player.findOne({ userId: loserRaw }) || new Player({ userId: loserRaw });
+      const loseUser = await client.users.fetch(loserRaw).catch(() => null);
       if (loseUser) loser.username = loseUser.username;
 
       let loserMmrChange = -10 + (deaths * 0.20) - (kills * 0.25);
       loser.losses += 1;
       loser.kills += deaths;
       loser.deaths += kills;
-      loser.mmr = Math.max(0, loser.mmr + loserMmrChange);
+      loser.mmr = Math.max(0, loser.mmr - loserMmrChange);
       await loser.save();
 
       // Update Discord Rank Roles
       if (interaction.guild) {
-        const winMember = await interaction.guild.members.fetch(winnerId).catch(() => null);
-        const loseMember = await interaction.guild.members.fetch(loserId).catch(() => null);
+        const winMember = await interaction.guild.members.fetch(winnerRaw).catch(() => null);
+        const loseMember = await interaction.guild.members.fetch(loserRaw).catch(() => null);
         updatePlayerRole(interaction.guild, winMember, winner.mmr);
         updatePlayerRole(interaction.guild, loseMember, loser.mmr);
       }
 
       const resultEmbed = new EmbedBuilder()
-        .setTitle('✅ Match Graded & Finalized')
+        .setTitle('✅ Match Approved & Finalized')
         .setColor(0x2ecc71)
         .setDescription(
           `**Grader:** ${interaction.user.username}\n\n` +
-          `🏆 **Winner:** <@${winnerId}> (+${winnerMmrChange.toFixed(2)} MMR → **${winner.mmr.toFixed(0)} MMR**)\n` +
-          `💀 **Loser:** <@${loserId}> (${loserMmrChange.toFixed(2)} MMR → **${loser.mmr.toFixed(0)} MMR**)`
+          `👑 **Winner:** <@${winnerRaw}> (+${winnerMmrChange.toFixed(2)} MMR → **${winner.mmr.toFixed(0)} MMR**)\n` +
+          `💀 **Loser:** <@${loserRaw}> (${loserMmrChange.toFixed(2)} MMR → **${loser.mmr.toFixed(0)} MMR**)\n\n` +
+          `📊 **Stats:** ${kills} Kills / ${deaths} Deaths`
         );
 
       await interaction.editReply({ embeds: [resultEmbed] });
-      await interaction.channel.setArchived(true).catch(() => null);
+
+      // If submitted in a thread, notify and archive thread
+      const sourceChannel = await interaction.guild.channels.fetch(sourceChannelId).catch(() => null);
+      if (sourceChannel) {
+        if (sourceChannel.isThread()) {
+          await sourceChannel.send({ embeds: [resultEmbed] });
+          await sourceChannel.setArchived(true).catch(() => null);
+        } else {
+          await sourceChannel.send({ embeds: [resultEmbed] });
+        }
+      }
     }
   }
 });
@@ -436,7 +507,6 @@ async function launch1v1Thread(matchData) {
 
   const roomCode = generateRoomCode();
 
-  // Create match thread directly inside queue channel (1553779380218630264)
   const thread = await channel.threads.create({
     name: `⚔️ 1v1 Arena Match - Code ${roomCode}`,
     autoArchiveDuration: 60
@@ -444,18 +514,6 @@ async function launch1v1Thread(matchData) {
 
   const p1 = players[0];
   const p2 = players[1];
-
-  const gradeP1Win = new ButtonBuilder()
-    .setCustomId(`grade_match_${thread.id}_${p1.userId}_${p2.userId}`)
-    .setLabel(`Grade Winner: ${p1.username}`)
-    .setStyle(ButtonStyle.Success);
-
-  const gradeP2Win = new ButtonBuilder()
-    .setCustomId(`grade_match_${thread.id}_${p2.userId}_${p1.userId}`)
-    .setLabel(`Grade Winner: ${p2.username}`)
-    .setStyle(ButtonStyle.Success);
-
-  const row = new ActionRowBuilder().addComponents(gradeP1Win, gradeP2Win);
 
   const embed = new EmbedBuilder()
     .setTitle(`🏟️ 1v1 Arena Match Started`)
@@ -466,14 +524,13 @@ async function launch1v1Thread(matchData) {
       `👤 **Player 2:** <@${p2.userId}>\n\n` +
       `**Instructions:**\n` +
       `1. Join Animal Company using code **${roomCode}**.\n` +
-      `2. Once finished, upload your scoreboard/watch screenshot in this thread.\n` +
-      `3. Mention <@&${STAFF_ROLE_ID}> so a grader can log the match!`
+      `2. Once finished, upload your screenshot in this thread or <#${MATCH_RESULTS_CHANNEL_ID}>.\n` +
+      `3. Screenshots are automatically sent to <#${APPROVAL_CHANNEL_ID}> for staff to grade.`
     );
 
   await thread.send({ 
-    content: `<@${p1.userId}> vs <@${p2.userId}> | <@&${STAFF_ROLE_ID}>`, 
-    embeds: [embed], 
-    components: [row] 
+    content: `<@${p1.userId}> vs <@${p2.userId}>`, 
+    embeds: [embed]
   });
 }
 
