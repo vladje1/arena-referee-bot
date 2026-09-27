@@ -87,72 +87,93 @@ function isStaff(member) {
   return member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID);
 }
 
-// --- 🚀 FIXED & RELIABLE VISION AI FUNCTION ---
+// --- 🚀 ROBUST VISION AI WITH FALLBACKS ---
 async function analyzeScoreboardWithAI(imageUrl) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 12000);
+  // List of free vision models to attempt in order
+  const VISION_MODELS = [
+    "google/gemini-2.0-flash-lite-001:free",
+    "google/gemini-2.0-pro-exp-02-05:free",
+    "meta-llama/llama-3.2-11b-vision-instruct:free"
+  ];
 
-  try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        "HTTP-Referer": "https://render.com",
-        "X-Title": "Arena Ranked Bot",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        // 1. Explicitly target a FREE Vision-capable model
-        model: "google/gemini-2.0-flash-lite-001:free", 
-        max_tokens: 150,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "Look at the watch screen in this VR screenshot.\n" +
-                      "1. HP at top (e.g. 200). If HP > 0, outcome is 'win', else 'loss'.\n" +
-                      "2. Kills (K) is the top number next to 'K'.\n" +
-                      "3. Deaths (D) is the bottom number next to 'D'.\n\n" +
-                      "Respond ONLY with a valid JSON object. No extra text, no markdown formatting. Example: {\"outcome\": \"win\", \"kills\": 19, \"deaths\": 4}"
-              },
-              {
-                type: "image_url",
-                image_url: { url: imageUrl }
-              }
-            ]
-          }
-        ]
-      })
-    });
+  for (const modelName of VISION_MODELS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-    clearTimeout(timeoutId);
-    const data = await response.json();
+    try {
+      console.log(`🔍 Attempting AI scan with model: ${modelName}`);
 
-    if (!data?.choices?.[0]?.message?.content) {
-      console.error("AI API returned empty response:", JSON.stringify(data));
-      return null;
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "HTTP-Referer": "https://render.com",
+          "X-Title": "Arena Ranked Bot",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: modelName,
+          max_tokens: 150,
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "Analyze this VR watch screen image.\n" +
+                        "1. HP > 0 = 'win', HP <= 0 = 'loss'.\n" +
+                        "2. Read Kills (K) and Deaths (D).\n" +
+                        "Return ONLY raw JSON in this exact format: {\"outcome\": \"win\", \"kills\": 19, \"deaths\": 4}"
+                },
+                {
+                  type: "image_url",
+                  image_url: { url: imageUrl }
+                }
+              ]
+            }
+          ]
+        })
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`⚠️ Model ${modelName} HTTP Error ${response.status}:`, errorText);
+        continue; // Try next model in list
+      }
+
+      const data = await response.json();
+      const content = data?.choices?.[0]?.message?.content;
+
+      if (!content) {
+        console.error(`⚠️ Model ${modelName} returned empty content.`);
+        continue;
+      }
+
+      // Clean markdown fences (```json ... ```)
+      const cleaned = content.replace(/```json/gi, '').replace(/```/g, '').trim();
+      const jsonMatch = cleaned.match(/\{[\s\S]*?\}/);
+
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.outcome && parsed.kills !== undefined && parsed.deaths !== undefined) {
+          console.log(`✅ AI successfully scanned using ${modelName}:`, parsed);
+          return parsed;
+        }
+      }
+
+      console.error(`⚠️ Could not parse valid JSON from response: "${content}"`);
+    } catch (err) {
+      clearTimeout(timeoutId);
+      console.error(`❌ Error with ${modelName}:`, err.message);
     }
-
-    const content = data.choices[0].message.content;
-
-    // Clean up response if the model included markdown code blocks
-    const cleanedContent = content.replace(/```json/g, '').replace(/```/g, '').trim();
-    const jsonMatch = cleanedContent.match(/\{[\s\S]*?\}/);
-
-    if (!jsonMatch) {
-      console.error("Could not parse JSON from AI response:", content);
-      return null;
-    }
-
-    return JSON.parse(jsonMatch[0]);
-  } catch (err) {
-    clearTimeout(timeoutId);
-    console.error("AI Vision Scan Error:", err.message);
-    return null;
   }
+
+  // All model attempts failed
+  console.error("❌ All vision model attempts failed to read image.");
+  return null;
 }
 
 // --- 🎮 BOT READY ---
