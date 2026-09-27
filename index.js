@@ -91,10 +91,10 @@ function isStaff(member) {
   return member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID);
 }
 
-// --- 🚀 GOOGLE GEMINI VISION SCANNER ---
-async function analyzeScoreboardWithAI(imageUrl) {
+// --- 🚀 GOOGLE GEMINI VISION SCANNER WITH RETRY LOGIC ---
+async function analyzeScoreboardWithAI(imageUrl, retries = 2) {
   try {
-    console.log("🔍 Fetching and scanning image with Google Gemini Vision...");
+    console.log("🔍 Fetching image for Gemini Vision processing...");
 
     const imageResp = await fetch(imageUrl);
     if (!imageResp.ok) {
@@ -106,13 +106,13 @@ async function analyzeScoreboardWithAI(imageUrl) {
     const base64Data = Buffer.from(arrayBuffer).toString('base64');
     const mimeType = imageResp.headers.get('content-type') || 'image/png';
 
-    const prompt = `Analyze the digital watch/display in this VR screenshot.
-1. Read HP at the top (e.g. 160). If HP > 0, set outcome to 'win', otherwise 'loss'.
-2. Read Kills (K) displayed on screen (e.g. 25).
-3. Read Deaths (D) displayed on screen (e.g. 2).
+    const prompt = `Analyze the digital wrist watch screen in this VR screenshot.
+1. Read HP at the top (e.g. 200, 160). If HP > 0, outcome is 'win', otherwise 'loss'.
+2. Read Kills (K) displayed in digital 7-segment numbers next to 'K'.
+3. Read Deaths (D) displayed in digital 7-segment numbers next to 'D'.
 
-Return ONLY a valid JSON object without any additional text or markdown formatting.
-Example format: {"outcome": "win", "kills": 25, "deaths": 2}`;
+Return ONLY raw JSON with keys outcome, kills, deaths.
+Example: {"outcome": "win", "kills": 8, "deaths": 4}`;
 
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
@@ -143,11 +143,19 @@ Example format: {"outcome": "win", "kills": 25, "deaths": 2}`;
       }
     }
 
-    console.error("⚠️ Couldn't parse JSON from Gemini response.");
+    console.error("⚠️ Couldn't parse valid JSON from Gemini output.");
     return null;
 
   } catch (err) {
-    console.error("❌ Gemini API Error:", err.message);
+    console.error("❌ Gemini API Error Details:", err.message);
+
+    // If rate limited (429) and retries remain, wait 2 seconds and try again
+    if (retries > 0 && (err.message.includes('429') || err.message.includes('Quota') || err.message.includes('ResourceExhausted'))) {
+      console.log(`⏳ Rate limit reached. Retrying in 2 seconds... (${retries} retries left)`);
+      await new Promise(res => setTimeout(res, 2000));
+      return analyzeScoreboardWithAI(imageUrl, retries - 1);
+    }
+
     return null;
   }
 }
