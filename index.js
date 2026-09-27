@@ -106,15 +106,14 @@ async function analyzeScoreboardWithAI(imageUrl) {
     const base64Data = Buffer.from(arrayBuffer).toString('base64');
     const mimeType = imageResp.headers.get('content-type') || 'image/png';
 
-    // Using stable gemini-1.5-flash endpoint for generative vision calls
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
     const prompt = `Analyze the digital watch screen in this VR screenshot.
 1. Read HP at the top (e.g. 200). If HP > 0, outcome is 'win', else 'loss'.
 2. Read Kills (K) next to the 'K' icon or letter (e.g. 19).
 3. Read Deaths (D) next to the 'D' icon or letter (e.g. 4).
 
 Respond ONLY with raw JSON. No Markdown formatting or extra text. Example: {"outcome": "win", "kills": 19, "deaths": 4}`;
+
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const result = await model.generateContent([
       prompt,
