@@ -1,15 +1,15 @@
 {
-  "name": "arena-referee-bot",
+  "name": "animal-company-bot",
   "version": "1.0.0",
-  "description": "Arena Referee Discord Bot",
+  "description": "Discord competitive bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
-    "discord.js": "^14.14.1",
-    "dotenv": "^16.4.5",
-    "mongoose": "^8.2.1"
+    "axios": "^1.6.0",
+    "discord.js": "^14.14.0",
+    "dotenv": "^16.4.0",
+    "mongoose": "^8.0.0"
   }
 }
