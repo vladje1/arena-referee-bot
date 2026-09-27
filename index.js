@@ -27,7 +27,7 @@ const client = new Client({
 
 // --- ⚙️ CONFIGURATION ---
 const QUEUE_CHANNEL_ID = '1553779380218630264';         // Ranked Queue & Match Threads Channel
-const MATCH_RESULTS_CHANNEL_ID = '1553172302420643950'; // #match-results Channel
+const MATCH_RESULTS_CHANNEL_ID = '1553172302420643950'; // #match-results Channel (Pubs)
 const APPROVAL_CHANNEL_ID = '1553177031523700838';      // #approve Channel (Staff Review)
 const STAFF_ROLE_ID = '1553324535128916070';            // Grader / Staff Role
 
@@ -43,7 +43,7 @@ const RANK_ROLES = [
   { name: 'Bronze',   minMmr: 0,     id: '1553329700749705226' }
 ];
 
-// --- 🗄️ DATABASE SCHEMATIC ---
+// --- 🗄️ DATABASE SCHEMA ---
 const playerSchema = new mongoose.Schema({
   userId: { type: String, required: true, unique: true },
   username: { type: String, default: 'Player' },
@@ -61,6 +61,7 @@ mongoose.connect(process.env.MONGO_URI);
 // --- 🚦 MATCHMAKING QUEUE (1v1) ---
 const active1v1Queue = [];
 const pendingMatches = new Map();
+const matchPlayersCache = new Map(); // Store p1 & p2 IDs per thread
 
 // --- 🛠️ HELPER FUNCTIONS ---
 function getRankInfo(mmr) {
@@ -141,7 +142,7 @@ client.once('ready', async () => {
   await rest.put(Routes.applicationCommands(client.user.id), { body: commands }).catch(console.error);
 });
 
-// --- 📩 DIRECT FORWARDING (SCREENSHOT → APPROVE) ---
+// --- 📩 LISTEN FOR SCREENSHOTS (THREADS vs PUBS) ---
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
@@ -155,27 +156,48 @@ client.on('messageCreate', async (message) => {
       const approvalChannel = await message.guild.channels.fetch(APPROVAL_CHANNEL_ID).catch(() => null);
       if (!approvalChannel) return;
 
-      const approveEmbed = new EmbedBuilder()
-        .setTitle('🔎 Match Result Pending Staff Approval')
+      const actionRow = new ActionRowBuilder();
+      let approveEmbed = new EmbedBuilder()
         .setColor(0xf1c40f)
-        .setDescription(
-          `**Submitted By:** <@${message.author.id}>\n` +
-          `**Channel/Thread:** <#${message.channel.id}>\n` +
-          `**Message Link:** [Jump to Message](${message.url})`
-        )
         .setImage(attachment.url);
 
-      const gradeBtn = new ButtonBuilder()
-        .setCustomId(`open_grade_modal_${message.author.id}_${message.channel.id}`)
-        .setLabel('⚖️ Grade Match')
-        .setStyle(ButtonStyle.Primary);
+      if (isMatchThread) {
+        // --- MATCH THREAD SUBMISSION ---
+        let players = matchPlayersCache.get(message.channel.id) || [message.author.id, null];
+        approveEmbed
+          .setTitle('🔎 Match Thread Result Pending')
+          .setDescription(`**Submitter:** <@${message.author.id}>\n**Thread:** <#${message.channel.id}>\n**Jump:** [Message Link](${message.url})`);
 
-      const row = new ActionRowBuilder().addComponents(gradeBtn);
+        if (players[1]) {
+          actionRow.addComponents(
+            new ButtonBuilder().setCustomId(`thread_win_${players[0]}_${players[1]}_${message.channel.id}`).setLabel('Win Player 1').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`thread_win_${players[1]}_${players[0]}_${message.channel.id}`).setLabel('Win Player 2').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`approve_reject_${message.channel.id}`).setLabel('❌ Reject').setStyle(ButtonStyle.Danger)
+          );
+        } else {
+          actionRow.addComponents(
+            new ButtonBuilder().setCustomId(`approve_manual_${message.author.id}_${message.channel.id}`).setLabel('✅ Grade Match').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`approve_reject_${message.channel.id}`).setLabel('❌ Reject').setStyle(ButtonStyle.Danger)
+          );
+        }
+
+      } else if (isMatchResultsChannel) {
+        // --- PUBS (#match-results) SUBMISSION: Win, Lose, Reject buttons ---
+        approveEmbed
+          .setTitle('🔎 Pubs Match Result Pending (#match-results)')
+          .setDescription(`**Submitter:** <@${message.author.id}>\n**Channel:** <#${message.channel.id}>\n**Jump:** [Message Link](${message.url})`);
+
+        actionRow.addComponents(
+          new ButtonBuilder().setCustomId(`pub_win_${message.author.id}_${message.channel.id}`).setLabel('Win').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId(`pub_lose_${message.author.id}_${message.channel.id}`).setLabel('Lose').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId(`approve_reject_${message.channel.id}`).setLabel('Reject').setStyle(ButtonStyle.Secondary)
+        );
+      }
 
       await approvalChannel.send({
         content: `<@&${STAFF_ROLE_ID}> New match screenshot submitted for review:`,
         embeds: [approveEmbed],
-        components: [row]
+        components: [actionRow]
       });
     }
   }
@@ -305,7 +327,7 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // 2. Queue Buttons & Staff Grading Trigger
+  // 2. Buttons
   if (interaction.isButton()) {
     if (interaction.customId === 'join_1v1_queue') {
       if (active1v1Queue.some(p => p.userId === interaction.user.id)) {
@@ -345,47 +367,117 @@ client.on('interactionCreate', async (interaction) => {
       }
     }
 
-    // Staff clicks "Grade Match" inside #approve
-    if (interaction.customId.startsWith('open_grade_modal_')) {
-      if (!isStaff(interaction.member)) {
-        return interaction.reply({ content: "❌ Access Denied: Grader/Staff permissions required.", ephemeral: true });
-      }
+    if (interaction.customId.startsWith('approve_reject_')) {
+      if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
+      const channelId = interaction.customId.split('_')[2];
 
-      const [, , submitterId, sourceChannelId] = interaction.customId.split('_');
+      const rejectedEmbed = new EmbedBuilder()
+        .setTitle('❌ Match Submission Rejected')
+        .setColor(0xe74c3c)
+        .setDescription(`Rejected by staff <@${interaction.user.id}>.`);
+
+      await interaction.update({ embeds: [rejectedEmbed], components: [] });
+
+      const sourceChannel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+      if (sourceChannel) {
+        await sourceChannel.send('❌ Your match submission was rejected by staff.');
+      }
+    }
+
+    // --- THREAD WIN BUTTON: Asks for BOTH user IDs and BOTH teams Kills/Deaths ---
+    if (interaction.customId.startsWith('thread_win_')) {
+      if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
+      const [, , winnerId, loserId, channelId] = interaction.customId.split('_');
 
       const modal = new ModalBuilder()
-        .setCustomId(`process_approval_${submitterId}_${sourceChannelId}`)
-        .setTitle('Grade Match Result');
+        .setCustomId(`submit_thread_stats_${winnerId}_${loserId}_${channelId}`)
+        .setTitle('Grade Match Thread Stats');
 
-      const winnerIdInput = new TextInputBuilder()
-        .setCustomId('modal_winner_id')
-        .setLabel('Winner Discord User ID / Mention')
-        .setPlaceholder('Enter Discord User ID of Winner')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-      const loserIdInput = new TextInputBuilder()
-        .setCustomId('modal_loser_id')
-        .setLabel('Loser Discord User ID / Mention')
-        .setPlaceholder('Enter Discord User ID of Loser')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-      const killsInput = new TextInputBuilder()
-        .setCustomId('modal_kills')
+      const winnerKillsInput = new TextInputBuilder()
+        .setCustomId('winner_kills')
         .setLabel('Winner Kills')
         .setStyle(TextInputStyle.Short)
         .setRequired(true);
 
-      const deathsInput = new TextInputBuilder()
-        .setCustomId('modal_deaths')
+      const winnerDeathsInput = new TextInputBuilder()
+        .setCustomId('winner_deaths')
         .setLabel('Winner Deaths')
         .setStyle(TextInputStyle.Short)
         .setRequired(true);
 
+      const loserKillsInput = new TextInputBuilder()
+        .setCustomId('loser_kills')
+        .setLabel('Loser Kills')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      const loserDeathsInput = new TextInputBuilder()
+        .setCustomId('loser_deaths')
+        .setLabel('Loser Deaths')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
       modal.addComponents(
-        new ActionRowBuilder().addComponents(winnerIdInput),
-        new ActionRowBuilder().addComponents(loserIdInput),
+        new ActionRowBuilder().addComponents(winnerKillsInput),
+        new ActionRowBuilder().addComponents(winnerDeathsInput),
+        new ActionRowBuilder().addComponents(loserKillsInput),
+        new ActionRowBuilder().addComponents(loserDeathsInput)
+      );
+
+      await interaction.showModal(modal);
+    }
+
+    // --- PUBS WIN BUTTON (#match-results): Win = +MMR ---
+    if (interaction.customId.startsWith('pub_win_')) {
+      if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
+      const [, , submitterId, channelId] = interaction.customId.split('_');
+
+      const modal = new ModalBuilder()
+        .setCustomId(`submit_pub_stats_${submitterId}_${channelId}_win`)
+        .setTitle('Pub Match Win Stats');
+
+      const killsInput = new TextInputBuilder()
+        .setCustomId('kills')
+        .setLabel('Your Kills')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      const deathsInput = new TextInputBuilder()
+        .setCustomId('deaths')
+        .setLabel('Your Deaths')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(killsInput),
+        new ActionRowBuilder().addComponents(deathsInput)
+      );
+
+      await interaction.showModal(modal);
+    }
+
+    // --- PUBS LOSE BUTTON (#match-results): Lose = -MMR ---
+    if (interaction.customId.startsWith('pub_lose_')) {
+      if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
+      const [, , submitterId, channelId] = interaction.customId.split('_');
+
+      const modal = new ModalBuilder()
+        .setCustomId(`submit_pub_stats_${submitterId}_${channelId}_lose`)
+        .setTitle('Pub Match Loss Stats');
+
+      const killsInput = new TextInputBuilder()
+        .setCustomId('kills')
+        .setLabel('Your Kills')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      const deathsInput = new TextInputBuilder()
+        .setCustomId('deaths')
+        .setLabel('Your Deaths')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true);
+
+      modal.addComponents(
         new ActionRowBuilder().addComponents(killsInput),
         new ActionRowBuilder().addComponents(deathsInput)
       );
@@ -394,79 +486,114 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
-  // 3. Staff Modal Submission (Approve Match)
+  // 3. Modal Submissions
   if (interaction.isModalSubmit()) {
-    if (interaction.customId.startsWith('process_approval_')) {
-      if (!isStaff(interaction.member)) {
-        return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
-      }
+    // --- THREAD MODAL SUBMISSION ---
+    if (interaction.customId.startsWith('submit_thread_stats_')) {
+      const [, , winnerId, loserId, channelId] = interaction.customId.split('_');
 
-      const [, , submitterId, sourceChannelId] = interaction.customId.split('_');
-
-      const winnerRaw = interaction.fields.getTextInputValue('modal_winner_id').replace(/[<@!>]/g, '').trim();
-      const loserRaw = interaction.fields.getTextInputValue('modal_loser_id').replace(/[<@!>]/g, '').trim();
-      const kills = parseInt(interaction.fields.getTextInputValue('modal_kills'), 10);
-      const deaths = parseInt(interaction.fields.getTextInputValue('modal_deaths'), 10);
-
-      if (isNaN(kills) || isNaN(deaths) || kills < 0 || deaths < 0) {
-        return interaction.reply({ content: '❌ Invalid kills/deaths entered!', ephemeral: true });
-      }
+      const winnerKills = parseInt(interaction.fields.getTextInputValue('winner_kills'), 10) || 0;
+      const winnerDeaths = parseInt(interaction.fields.getTextInputValue('winner_deaths'), 10) || 0;
+      const loserKills = parseInt(interaction.fields.getTextInputValue('loser_kills'), 10) || 0;
+      const loserDeaths = parseInt(interaction.fields.getTextInputValue('loser_deaths'), 10) || 0;
 
       await interaction.deferReply();
 
       // Update Winner
-      let winner = await Player.findOne({ userId: winnerRaw }) || new Player({ userId: winnerRaw });
-      const winUser = await client.users.fetch(winnerRaw).catch(() => null);
-      if (winUser) winner.username = winUser.username;
-
-      let winnerMmrChange = 7.5 + (kills * 0.20) - (deaths * 0.25);
+      let winner = await Player.findOne({ userId: winnerId }) || new Player({ userId: winnerId });
+      let winnerMmrGain = 7.5 + (winnerKills * 0.20) - (winnerDeaths * 0.25);
       winner.wins += 1;
-      winner.kills += kills;
-      winner.deaths += deaths;
-      winner.mmr = Math.max(0, winner.mmr + winnerMmrChange);
+      winner.kills += winnerKills;
+      winner.deaths += winnerDeaths;
+      winner.mmr = Math.max(0, winner.mmr + winnerMmrGain);
       await winner.save();
 
       // Update Loser
-      let loser = await Player.findOne({ userId: loserRaw }) || new Player({ userId: loserRaw });
-      const loseUser = await client.users.fetch(loserRaw).catch(() => null);
-      if (loseUser) loser.username = loseUser.username;
-
-      let loserMmrChange = -10 + (deaths * 0.20) - (kills * 0.25);
+      let loser = await Player.findOne({ userId: loserId }) || new Player({ userId: loserId });
+      let loserMmrLoss = -10 + (loserKills * 0.20) - (loserDeaths * 0.25);
       loser.losses += 1;
-      loser.kills += deaths;
-      loser.deaths += kills;
-      loser.mmr = Math.max(0, loser.mmr - loserMmrChange);
+      loser.kills += loserKills;
+      loser.deaths += loserDeaths;
+      loser.mmr = Math.max(0, loser.mmr + loserMmrLoss);
       await loser.save();
 
-      // Update Discord Rank Roles
       if (interaction.guild) {
-        const winMember = await interaction.guild.members.fetch(winnerRaw).catch(() => null);
-        const loseMember = await interaction.guild.members.fetch(loserRaw).catch(() => null);
+        const winMember = await interaction.guild.members.fetch(winnerId).catch(() => null);
+        const loseMember = await interaction.guild.members.fetch(loserId).catch(() => null);
         updatePlayerRole(interaction.guild, winMember, winner.mmr);
         updatePlayerRole(interaction.guild, loseMember, loser.mmr);
       }
 
       const resultEmbed = new EmbedBuilder()
-        .setTitle('✅ Match Approved & Finalized')
+        .setTitle('✅ Thread Match Approved & Saved')
         .setColor(0x2ecc71)
         .setDescription(
-          `**Grader:** ${interaction.user.username}\n\n` +
-          `👑 **Winner:** <@${winnerRaw}> (+${winnerMmrChange.toFixed(2)} MMR → **${winner.mmr.toFixed(0)} MMR**)\n` +
-          `💀 **Loser:** <@${loserRaw}> (${loserMmrChange.toFixed(2)} MMR → **${loser.mmr.toFixed(0)} MMR**)\n\n` +
+          `**Grader:** <@${interaction.user.id}>\n\n` +
+          `👑 **Winner:** <@${winnerId}> (+${winnerMmrGain.toFixed(1)} MMR → **${winner.mmr.toFixed(0)}**)\n` +
+          `💀 **Loser:** <@${loserId}> (${loserMmrLoss.toFixed(1)} MMR → **${loser.mmr.toFixed(0)}**)\n\n` +
+          `📊 **Stats:** Winner (${winnerKills}K / ${winnerDeaths}D) | Loser (${loserKills}K / ${loserDeaths}D)`
+        );
+
+      await interaction.editReply({ embeds: [resultEmbed] });
+
+      const sourceChannel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+      if (sourceChannel) {
+        await sourceChannel.send({ embeds: [resultEmbed] });
+        if (sourceChannel.isThread()) {
+          await sourceChannel.setArchived(true).catch(() => null);
+        }
+      }
+    }
+
+    // --- PUBS (#match-results) MODAL SUBMISSION ---
+    if (interaction.customId.startsWith('submit_pub_stats_')) {
+      const parts = interaction.customId.split('_');
+      const submitterId = parts[3];
+      const channelId = parts[4];
+      const outcome = parts[5]; // 'win' or 'lose'
+
+      const kills = parseInt(interaction.fields.getTextInputValue('kills'), 10) || 0;
+      const deaths = parseInt(interaction.fields.getTextInputValue('deaths'), 10) || 0;
+
+      await interaction.deferReply();
+
+      let player = await Player.findOne({ userId: submitterId }) || new Player({ userId: submitterId });
+      let mmrChange = 0;
+
+      if (outcome === 'win') {
+        mmrChange = 7.5 + (kills * 0.20) - (deaths * 0.25);
+        player.wins += 1;
+        player.mmr = Math.max(0, player.mmr + mmrChange);
+      } else {
+        mmrChange = -10 + (deaths * 0.20) - (kills * 0.25);
+        player.losses += 1;
+        player.mmr = Math.max(0, player.mmr + mmrChange);
+      }
+
+      player.kills += kills;
+      player.deaths += deaths;
+      await player.save();
+
+      if (interaction.guild) {
+        const member = await interaction.guild.members.fetch(submitterId).catch(() => null);
+        updatePlayerRole(interaction.guild, member, player.mmr);
+      }
+
+      const resultEmbed = new EmbedBuilder()
+        .setTitle(outcome === 'win' ? '✅ Pub Match Approved (Win)' : '⚠️ Pub Match Recorded (Loss)')
+        .setColor(outcome === 'win' ? 0x2ecc71 : 0xe74c3c)
+        .setDescription(
+          `**Grader:** <@${interaction.user.id}>\n` +
+          `**Player:** <@${submitterId}>\n` +
+          `**MMR Change:** ${mmrChange >= 0 ? '+' : ''}${mmrChange.toFixed(1)} MMR → **${player.mmr.toFixed(0)}**\n` +
           `📊 **Stats:** ${kills} Kills / ${deaths} Deaths`
         );
 
       await interaction.editReply({ embeds: [resultEmbed] });
 
-      // If submitted in a thread, notify and archive thread
-      const sourceChannel = await interaction.guild.channels.fetch(sourceChannelId).catch(() => null);
+      const sourceChannel = await interaction.guild.channels.fetch(channelId).catch(() => null);
       if (sourceChannel) {
-        if (sourceChannel.isThread()) {
-          await sourceChannel.send({ embeds: [resultEmbed] });
-          await sourceChannel.setArchived(true).catch(() => null);
-        } else {
-          await sourceChannel.send({ embeds: [resultEmbed] });
-        }
+        await sourceChannel.send({ embeds: [resultEmbed] });
       }
     }
   }
@@ -515,6 +642,8 @@ async function launch1v1Thread(matchData) {
   const p1 = players[0];
   const p2 = players[1];
 
+  matchPlayersCache.set(thread.id, [p1.userId, p2.userId]);
+
   const embed = new EmbedBuilder()
     .setTitle(`🏟️ 1v1 Arena Match Started`)
     .setColor(0x2ecc71)
@@ -524,8 +653,8 @@ async function launch1v1Thread(matchData) {
       `👤 **Player 2:** <@${p2.userId}>\n\n` +
       `**Instructions:**\n` +
       `1. Join Animal Company using code **${roomCode}**.\n` +
-      `2. Once finished, upload your screenshot in this thread or <#${MATCH_RESULTS_CHANNEL_ID}>.\n` +
-      `3. Screenshots are automatically sent to <#${APPROVAL_CHANNEL_ID}> for staff to grade.`
+      `2. Upload screenshot in this thread.\n` +
+      `3. Staff will review and grade both players in <#${APPROVAL_CHANNEL_ID}>.`
     );
 
   await thread.send({ 
