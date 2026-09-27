@@ -30,6 +30,7 @@ const QUEUE_CHANNEL_ID = '1553779380218630264';         // Ranked Queue & Match 
 const MATCH_RESULTS_CHANNEL_ID = '1553172302420643950'; // #match-results Channel (Pubs)
 const APPROVAL_CHANNEL_ID = '1553177031523700838';      // #approve Channel (Staff Review)
 const STAFF_ROLE_ID = '1553324535128916070';            // Grader / Staff Role
+const BYPASS_USER_ID = '1497289874653450240';           // User allowed to bypass duplicate image check
 
 // --- 📊 COMPETITIVE RANK ROLES ---
 const RANK_ROLES = [
@@ -62,6 +63,7 @@ mongoose.connect(process.env.MONGO_URI);
 const active1v1Queue = [];
 const pendingMatches = new Map();
 const matchPlayersCache = new Map(); // Store p1 & p2 IDs per thread
+const recentImages = new Set();      // Track recent image URLs to prevent duplicates
 
 // --- 🛠️ HELPER FUNCTIONS ---
 function getRankInfo(mmr) {
@@ -153,6 +155,20 @@ client.on('messageCreate', async (message) => {
     const attachment = message.attachments.first();
 
     if (attachment.contentType && attachment.contentType.startsWith('image/')) {
+      // Check for duplicate images unless the sender is the designated bypass user
+      if (message.author.id !== BYPASS_USER_ID) {
+        if (recentImages.has(attachment.url)) {
+          await message.delete().catch(() => {});
+          const warning = await message.channel.send(`⚠️ <@${message.author.id}> This image has already been submitted or used! Duplicate screenshots are not allowed.`);
+          setTimeout(() => warning.delete().catch(() => {}), 5000);
+          return;
+        }
+
+        // Track image and automatically expire it after 2 hours (7,200,000 ms)
+        recentImages.add(attachment.url);
+        setTimeout(() => recentImages.delete(attachment.url), 7200000);
+      }
+
       const approvalChannel = await message.guild.channels.fetch(APPROVAL_CHANNEL_ID).catch(() => null);
       if (!approvalChannel) return;
 
@@ -169,7 +185,6 @@ client.on('messageCreate', async (message) => {
           .setDescription(`**Submitter:** <@${message.author.id}>\n**Thread:** <#${message.channel.id}>\n**Jump:** [Message Link](${message.url})`);
 
         if (players[1]) {
-          // Fetch user objects to pull actual usernames for the button labels
           const user1 = await client.users.fetch(players[0]).catch(() => ({ username: 'Player 1' }));
           const user2 = await client.users.fetch(players[1]).catch(() => ({ username: 'Player 2' }));
 
