@@ -37,9 +37,12 @@ const BYPASS_USER_ID = '1497289874653450240';           // User allowed to bypas
 // --- 📊 COMPETITIVE RANK ROLES ---
 const RANK_ROLES = [
   { name: 'Champion', minMmr: 20000, id: '1553330980515741706' },
+  { name: 'Grandmaster', minmmr: 17000, id: '1554029837180735569', },
   { name: 'Ruby',     minMmr: 10000, id: '1553330712613093448' },
   { name: 'Emerald',  minMmr: 5000,  id: '1553330578298773534' },
-  { name; 'Amethyst'  minMmr: 2000,  id: '1554028829662781550' },
+  { name: 'Azure'     minMmr: 4000,  id: '1554030447577538661' },
+  { name: 'Sapphire'  minMmr: 3000,  id: '1554029074345627688' },
+  { name: 'Amethyst'  minMmr: 2000,  id: '1554028829662781550' },
   { name: 'Diamond',  minMmr: 1000,  id: '1553330139578769499' },
   { name: 'Platinum', minMmr: 500,   id: '1553330336795070575' },
   { name: 'Gold',     minMmr: 250,   id: '1553330034943463505' },
