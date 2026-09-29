@@ -34,7 +34,7 @@ const APPROVAL_CHANNEL_ID = '1553177031523700838';      // #approve Channel (Sta
 const STAFF_ROLE_ID = '1553324535128916070';            // Grader / Staff Role
 const BYPASS_USER_ID = '1497289874653450240';           // User allowed to bypass duplicate image check
 
-// --- 📊 COMPETITIVE RANK ROLES (Ordered highest minMmr to lowest for proper checking) ---
+// --- 📊 COMPETITIVE RANK ROLES ---
 const CHAMPION_ROLE_ID = '1553330980515741706';          // Exclusive #1 Leaderboard Rank (Min 20k MMR)[cite: 5]
 const RANK_ROLES = [
   { name: 'Grandmaster', minMmr: 17000, id: '1554029837180735569' },[cite: 5]
@@ -49,10 +49,20 @@ const RANK_ROLES = [
   { name: 'Platinum',    minMmr: 500,   id: '1553330336795070575' },[cite: 5]
   { name: 'Gold',        minMmr: 250,   id: '1553330034943463505' },[cite: 5]
   { name: 'Silver',      minMmr: 100,   id: '1553329893687697418' },[cite: 5]
-  { name: 'Bronze',      minMmr: 0,     id: '1553329700749705226' } [cite: 5]
+  { name: 'Bronze',      minMmr: 0,     id: '1553329700749705226' }[cite: 5]
 ];
 
-// --- 🗄️ DATABASE SCHEMA ---
+// --- 📜 QUEST DEFINITIONS ---
+const QUESTS = [
+  { id: 'first_blood', title: 'First Blood', description: 'Get your very first recorded kill.', goal: 1, type: 'total_kills', rewardMmr: 25 },
+  { id: 'brawler', title: 'Arena Brawler', description: 'Accumulate a total of 20 kills across matches.', goal: 20, type: 'total_kills', rewardMmr: 50 },
+  { id: 'slayer', title: 'Massacre Machine', description: 'Rack up 60 total kills.', goal: 60, type: 'total_kills', rewardMmr: 150 },
+  { id: 'survivor', title: 'Glutton for Punishment', description: 'Survive through 20 total deaths in matches.', goal: 20, type: 'total_deaths', rewardMmr: 40 },
+  { id: 'climber', title: 'Rising Star', description: 'Reach the Gold rank or higher.', minMmr: 250, type: 'rank', rewardMmr: 75 },
+  { id: 'elite', title: 'Elite Operator', description: 'Reach the Diamond rank or higher.', minMmr: 1000, type: 'rank', rewardMmr: 200 }
+];
+
+// --- 🗄️ DATABASE SCHEMAS ---
 const playerSchema = new mongoose.Schema({
   userId: { type: String, required: true, unique: true },
   username: { type: String, default: 'Player' },
@@ -61,7 +71,8 @@ const playerSchema = new mongoose.Schema({
   wins: { type: Number, default: 0 },
   losses: { type: Number, default: 0 },
   kills: { type: Number, default: 0 },
-  deaths: { type: Number, default: 0 }
+  deaths: { type: Number, default: 0 },
+  completedQuests: { type: [String], default: [] }
 });
 const Player = mongoose.model('Player', playerSchema);
 
@@ -82,10 +93,43 @@ function generateRoomCode() {
   return 'AC-' + Math.floor(1000 + Math.random() * 9000);
 }
 
+async function checkAndAwardQuests(player, guild, member) {
+  let newlyCompleted = [];
+
+  for (const quest of QUESTS) {
+    if (player.completedQuests.includes(quest.id)) continue;
+
+    let unlocked = false;
+    if (quest.type === 'total_kills' && player.kills >= quest.goal) {
+      unlocked = true;
+    } else if (quest.type === 'total_deaths' && player.deaths >= quest.goal) {
+      unlocked = true;
+    } else if (quest.type === 'rank' && player.mmr >= quest.minMmr) {
+      unlocked = true;
+    }
+
+    if (unlocked) {
+      player.completedQuests.push(quest.id);
+      player.mmr += quest.rewardMmr;
+      newlyCompleted.push(quest);
+    }
+  }
+
+  if (newlyCompleted.length > 0 && guild && member) {
+    let questText = newlyCompleted.map(q => `• **${q.title}** (+${q.rewardMmr} MMR)`).join('\n');
+    try {
+      await member.send({
+        content: `🎉 **Quest(s) Completed!**\nYou finished the following challenges:\n${questText}\nYour MMR has been updated!`
+      }).catch(() => {});
+    } catch (e) {}
+  }
+
+  return newlyCompleted.length > 0;
+}
+
 async function updatePlayerRole(guild, member, currentMmr) {
   if (!member) return null;
   
-  // 1. Handle regular baseline tier roles
   const targetRank = getRankInfo(currentMmr);
   const standardRoles = RANK_ROLES.map(r => r.id);
   const rolesToRemove = standardRoles.filter(id => id !== targetRank.id && member.roles.cache.has(id));
@@ -98,9 +142,7 @@ async function updatePlayerRole(guild, member, currentMmr) {
     await member.roles.add(targetRank.id).catch(() => null);
   }
 
-  // 2. Refresh #1 Champion crown globally
   await refreshChampionRole(guild);
-
   return targetRank.name;
 }
 
@@ -111,12 +153,10 @@ async function refreshChampionRole(guild) {
     const championRole = await guild.roles.fetch(CHAMPION_ROLE_ID).catch(() => null);
     if (!championRole) return;
 
-    // Remove Champion from everyone first
     for (const [memberId, member] of championRole.members) {
       await member.roles.remove(CHAMPION_ROLE_ID).catch(() => null);
     }
 
-    // Only assign Champion if the top player is #1 AND has at least 20,000 MMR[cite: 5]
     if (topPlayer && topPlayer.mmr >= 20000) {[cite: 5]
       const topMember = await guild.members.fetch(topPlayer.userId).catch(() => null);
       if (topMember) {
@@ -151,6 +191,10 @@ const commands = [
     .setName('stats')
     .setDescription('View Arena profile.')
     .addUserOption(opt => opt.setName('target').setDescription('Player (Optional)').setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('quests')
+    .setDescription('View your available and completed quests & rewards.'),
 
   new SlashCommandBuilder()
     .setName('addmmr')
@@ -339,6 +383,47 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.reply({ embeds: [embed] });
     }
 
+    if (interaction.commandName === 'quests') {
+      let player = await Player.findOne({ userId: interaction.user.id });
+      if (!player) {
+        return interaction.reply({ content: `❌ You need to register a profile first using \`/create-profile\`.`, ephemeral: true });
+      }
+
+      // Check current status update to auto-unlock any missed quest triggers
+      if (interaction.guild) {
+        const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+        await checkAndAwardQuests(player, interaction.guild, member);
+        await player.save();
+      }
+
+      const embed = new EmbedBuilder()
+        .setTitle(`📜 Quests & Achievements — ${player.username}`)
+        .setColor(0x9b59b6)
+        .setDescription('Complete milestones to earn bonus MMR rewards!');
+
+      for (const quest of QUESTS) {
+        const isCompleted = player.completedQuests.includes(quest.id);
+        let progressText = '';
+
+        if (quest.type === 'total_kills') {
+          progressText = `Progress: ${Math.min(player.kills, quest.goal)}/${quest.goal} Kills`;
+        } else if (quest.type === 'total_deaths') {
+          progressText = `Progress: ${Math.min(player.deaths, quest.goal)}/${quest.goal} Deaths`;
+        } else if (quest.type === 'rank') {
+          progressText = `Requirement: Reach ${quest.minMmr} MMR`;
+        }
+
+        const statusIcon = isCompleted ? '✅ **COMPLETED**' : `⏳ *In Progress* (${progressText})`;
+        embed.addFields({
+          name: `${quest.title} (+${quest.rewardMmr} MMR)`,
+          value: `${quest.description}\n${statusIcon}`,
+          inline: false
+        });
+      }
+
+      return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
     if (interaction.commandName === 'addmmr') {
       if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
       const target = interaction.options.getUser('target');
@@ -346,6 +431,7 @@ client.on('interactionCreate', async (interaction) => {
 
       let player = await Player.findOne({ userId: target.id }) || new Player({ userId: target.id, username: target.username });
       player.mmr += amount;
+      await checkAndAwardQuests(player, interaction.guild, interaction.member);
       await player.save();
 
       if (interaction.guild) {
@@ -378,6 +464,7 @@ client.on('interactionCreate', async (interaction) => {
 
       let player = await Player.findOne({ userId: target.id }) || new Player({ userId: target.id, username: target.username });
       player.mmr = Math.max(0, value);
+      await checkAndAwardQuests(player, interaction.guild, interaction.member);
       await player.save();
 
       if (interaction.guild) {
@@ -517,25 +604,31 @@ client.on('interactionCreate', async (interaction) => {
 
       await interaction.deferReply();
 
+      // Winner Stats update
       let winner = await Player.findOne({ userId: winnerId }) || new Player({ userId: winnerId });
       let winnerMmrGain = 7.5 + (winnerKills * 0.20) - (winnerDeaths * 0.25);
       winner.wins += 1;
       winner.kills += winnerKills;
       winner.deaths += winnerDeaths;
       winner.mmr = Math.max(0, winner.mmr + winnerMmrGain);
+
+      const winMember = interaction.guild ? await interaction.guild.members.fetch(winnerId).catch(() => null) : null;
+      await checkAndAwardQuests(winner, interaction.guild, winMember);
       await winner.save();
 
+      // Loser Stats update
       let loser = await Player.findOne({ userId: loserId }) || new Player({ userId: loserId });
       let loserMmrLoss = -10 + (loserKills * 0.20) - (loserDeaths * 0.25);
       loser.losses += 1;
       loser.kills += loserKills;
       loser.deaths += loserDeaths;
       loser.mmr = Math.max(0, loser.mmr + loserMmrLoss);
+
+      const loseMember = interaction.guild ? await interaction.guild.members.fetch(loserId).catch(() => null) : null;
+      await checkAndAwardQuests(loser, interaction.guild, loseMember);
       await loser.save();
 
       if (interaction.guild) {
-        const winMember = await interaction.guild.members.fetch(winnerId).catch(() => null);
-        const loseMember = await interaction.guild.members.fetch(loserId).catch(() => null);
         await updatePlayerRole(interaction.guild, winMember, winner.mmr);
         await updatePlayerRole(interaction.guild, loseMember, loser.mmr);
       }
@@ -589,10 +682,12 @@ client.on('interactionCreate', async (interaction) => {
 
       player.kills += kills;
       player.deaths += deaths;
+
+      const member = interaction.guild ? await interaction.guild.members.fetch(submitterId).catch(() => null) : null;
+      await checkAndAwardQuests(player, interaction.guild, member);
       await player.save();
 
       if (interaction.guild) {
-        const member = await interaction.guild.members.fetch(submitterId).catch(() => null);
         await updatePlayerRole(interaction.guild, member, player.mmr);
       }
 
@@ -653,7 +748,7 @@ async function launch1v1Thread(matchData) {
   const roomCode = generateRoomCode();
 
   const thread = await channel.threads.create({
-    name: `⚔️️ 1v1 Arena Match - Code ${roomCode}`,
+    name: `⚔️ 1v1 Arena Match - Code ${roomCode}`,
     autoArchiveDuration: 60
   });
 
