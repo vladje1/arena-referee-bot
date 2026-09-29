@@ -34,16 +34,22 @@ const APPROVAL_CHANNEL_ID = '1553177031523700838';      // #approve Channel (Sta
 const STAFF_ROLE_ID = '1553324535128916070';            // Grader / Staff Role
 const BYPASS_USER_ID = '1497289874653450240';           // User allowed to bypass duplicate image check
 
-// --- 📊 COMPETITIVE RANK ROLES ---
-const CHAMPION_ROLE_ID = '1553330980515741706';          // Exclusive #1 Leaderboard Rank (Min 20k MMR)
+// --- 📊 COMPETITIVE RANK ROLES (Ordered highest minMmr to lowest for proper checking) ---
+const CHAMPION_ROLE_ID = '1553330980515741706';          // Exclusive #1 Leaderboard Rank (Min 20k MMR)[cite: 5]
 const RANK_ROLES = [
-  { name: 'Ruby',     minMmr: 10000, id: '1553330712613093448' },
-  { name: 'Emerald',  minMmr: 5000,  id: '1553330578298773534' },
-  { name: 'Diamond',  minMmr: 1000,  id: '1553330139578769499' },
-  { name: 'Platinum', minMmr: 500,   id: '1553330336795070575' },
-  { name: 'Gold',     minMmr: 250,   id: '1553330034943463505' },
-  { name: 'Silver',   minMmr: 100,   id: '1553329893687697418' },
-  { name: 'Bronze',   minMmr: 0,     id: '1553329700749705226' }
+  { name: 'Grandmaster', minMmr: 17000, id: '1554029837180735569' },[cite: 5]
+  { name: 'Master',      minMmr: 14000, id: '1554029406828240956' },[cite: 5]
+  { name: 'Crimson',     minMmr: 12000, id: '1554029250556858428' },[cite: 5]
+  { name: 'Ruby',        minMmr: 10000, id: '1553330712613093448' },[cite: 5]
+  { name: 'Emerald',     minMmr: 5000,  id: '1553330578298773534' },[cite: 5]
+  { name: 'Azure',       minMmr: 4000,  id: '1554030447577538661' },[cite: 5]
+  { name: 'Sapphire',    minMmr: 3000,  id: '1554029074345627688' },[cite: 5]
+  { name: 'Amethyst',    minMmr: 2000,  id: '1554028829662781550' },[cite: 5]
+  { name: 'Diamond',     minMmr: 1000,  id: '1553330139578769499' },[cite: 5]
+  { name: 'Platinum',    minMmr: 500,   id: '1553330336795070575' },[cite: 5]
+  { name: 'Gold',        minMmr: 250,   id: '1553330034943463505' },[cite: 5]
+  { name: 'Silver',      minMmr: 100,   id: '1553329893687697418' },[cite: 5]
+  { name: 'Bronze',      minMmr: 0,     id: '1553329700749705226' } [cite: 5]
 ];
 
 // --- 🗄️ DATABASE SCHEMA ---
@@ -79,7 +85,7 @@ function generateRoomCode() {
 async function updatePlayerRole(guild, member, currentMmr) {
   if (!member) return null;
   
-  // 1. Handle regular baseline tiers (Ruby, Emerald, Diamond, etc.)
+  // 1. Handle regular baseline tier roles
   const targetRank = getRankInfo(currentMmr);
   const standardRoles = RANK_ROLES.map(r => r.id);
   const rolesToRemove = standardRoles.filter(id => id !== targetRank.id && member.roles.cache.has(id));
@@ -110,8 +116,8 @@ async function refreshChampionRole(guild) {
       await member.roles.remove(CHAMPION_ROLE_ID).catch(() => null);
     }
 
-    // Only assign Champion if the top player is #1 AND has at least 20,000 MMR
-    if (topPlayer && topPlayer.mmr >= 20000) {
+    // Only assign Champion if the top player is #1 AND has at least 20,000 MMR[cite: 5]
+    if (topPlayer && topPlayer.mmr >= 20000) {[cite: 5]
       const topMember = await guild.members.fetch(topPlayer.userId).catch(() => null);
       if (topMember) {
         await topMember.roles.add(CHAMPION_ROLE_ID).catch(() => null);
@@ -295,8 +301,8 @@ client.on('interactionCreate', async (interaction) => {
       
       let text = `🥇 **Arena Leaderboard** 🥇\n\n`;
       sorted.forEach((p, i) => {
-        const isChamp = i === 0 && p.mmr >= 20000;
-        const rankName = isChamp ? '👑 Champion' : getRankInfo(p.mmr).name;
+        const isChamp = i === 0 && p.mmr >= 20000;[cite: 5]
+        const rankName = isChamp ? '👑 Champion' : getRankInfo(p.mmr).name;[cite: 5]
         text += `${i + 1}. **${p.username}** — [${rankName}]${p.mmr.toFixed(0)} MMR\n`;
       });
       return interaction.reply({ content: text });
@@ -311,8 +317,8 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       const topPlayer = await Player.findOne({}).sort({ mmr: -1 });
-      const isChamp = topPlayer && topPlayer.userId === targetUser.id && player.mmr >= 20000;
-      const rankName = isChamp ? '👑 Champion' : getRankInfo(player.mmr).name;
+      const isChamp = topPlayer && topPlayer.userId === targetUser.id && player.mmr >= 20000;[cite: 5]
+      const rankName = isChamp ? '👑 Champion' : getRankInfo(player.mmr).name;[cite: 5]
 
       const winRate = (player.wins + player.losses) > 0 
         ? ((player.wins / (player.wins + player.losses)) * 100).toFixed(1) 
@@ -591,7 +597,7 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       const resultEmbed = new EmbedBuilder()
-        .setTitle(outcome === 'win' ? '✅ Pub Match Approved (Win)' : '⚠️️ Pub Match Recorded (Loss)')
+        .setTitle(outcome === 'win' ? '✅ Pub Match Approved (Win)' : '⚠️ Pub Match Recorded (Loss)')
         .setColor(outcome === 'win' ? 0x2ecc71 : 0xe74c3c)
         .setDescription(
           `**Grader:** <@${interaction.user.id}>\n` +
@@ -647,7 +653,7 @@ async function launch1v1Thread(matchData) {
   const roomCode = generateRoomCode();
 
   const thread = await channel.threads.create({
-    name: `⚔️ 1v1 Arena Match - Code ${roomCode}`,
+    name: `⚔️️ 1v1 Arena Match - Code ${roomCode}`,
     autoArchiveDuration: 60
   });
 
