@@ -35,7 +35,7 @@ const STAFF_ROLE_ID = '1553324535128916070';            // Grader / Staff Role
 const BYPASS_USER_ID = '1497289874653450240';           // User allowed to bypass duplicate image check
 
 // --- 📊 COMPETITIVE RANK ROLES ---
-const CHAMPION_ROLE_ID = '1553330980515741706';          // Exclusive #1 Leaderboard Rank
+const CHAMPION_ROLE_ID = '1553330980515741706';          // Exclusive #1 Leaderboard Rank (Min 20k MMR)
 const RANK_ROLES = [
   { name: 'Ruby',     minMmr: 10000, id: '1553330712613093448' },
   { name: 'Emerald',  minMmr: 5000,  id: '1553330578298773534' },
@@ -76,7 +76,6 @@ function generateRoomCode() {
   return 'AC-' + Math.floor(1000 + Math.random() * 9000);
 }
 
-// Updates normal ranks + handles the exclusive #1 Champion rank assignment server-wide
 async function updatePlayerRole(guild, member, currentMmr) {
   if (!member) return null;
   
@@ -93,7 +92,7 @@ async function updatePlayerRole(guild, member, currentMmr) {
     await member.roles.add(targetRank.id).catch(() => null);
   }
 
-  // 2. Refresh who holds the #1 Champion crown globally across the entire database/guild
+  // 2. Refresh #1 Champion crown globally
   await refreshChampionRole(guild);
 
   return targetRank.name;
@@ -102,25 +101,21 @@ async function updatePlayerRole(guild, member, currentMmr) {
 async function refreshChampionRole(guild) {
   if (!guild) return;
   try {
-    // Find the player with the highest MMR
     const topPlayer = await Player.findOne({}).sort({ mmr: -1 });
-    if (!topPlayer) return;
-
-    // Fetch all members who currently hold the Champion role in Discord
     const championRole = await guild.roles.fetch(CHAMPION_ROLE_ID).catch(() => null);
     if (!championRole) return;
 
-    // Remove Champion from anyone who is NOT the current top player
+    // Remove Champion from everyone first
     for (const [memberId, member] of championRole.members) {
-      if (memberId !== topPlayer.userId) {
-        await member.roles.remove(CHAMPION_ROLE_ID).catch(() => null);
-      }
+      await member.roles.remove(CHAMPION_ROLE_ID).catch(() => null);
     }
 
-    // Give Champion to the top player if they don't have it yet
-    const topMember = await guild.members.fetch(topPlayer.userId).catch(() => null);
-    if (topMember && !topMember.roles.cache.has(CHAMPION_ROLE_ID)) {
-      await topMember.roles.add(CHAMPION_ROLE_ID).catch(() => null);
+    // Only assign Champion if the top player is #1 AND has at least 20,000 MMR
+    if (topPlayer && topPlayer.mmr >= 20000) {
+      const topMember = await guild.members.fetch(topPlayer.userId).catch(() => null);
+      if (topMember) {
+        await topMember.roles.add(CHAMPION_ROLE_ID).catch(() => null);
+      }
     }
   } catch (err) {
     console.error("Error refreshing Champion role:", err);
@@ -300,7 +295,8 @@ client.on('interactionCreate', async (interaction) => {
       
       let text = `🥇 **Arena Leaderboard** 🥇\n\n`;
       sorted.forEach((p, i) => {
-        const rankName = i === 0 ? '👑 Champion' : getRankInfo(p.mmr).name;
+        const isChamp = i === 0 && p.mmr >= 20000;
+        const rankName = isChamp ? '👑 Champion' : getRankInfo(p.mmr).name;
         text += `${i + 1}. **${p.username}** — [${rankName}]${p.mmr.toFixed(0)} MMR\n`;
       });
       return interaction.reply({ content: text });
@@ -315,7 +311,7 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       const topPlayer = await Player.findOne({}).sort({ mmr: -1 });
-      const isChamp = topPlayer && topPlayer.userId === targetUser.id;
+      const isChamp = topPlayer && topPlayer.userId === targetUser.id && player.mmr >= 20000;
       const rankName = isChamp ? '👑 Champion' : getRankInfo(player.mmr).name;
 
       const winRate = (player.wins + player.losses) > 0 
@@ -595,7 +591,7 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       const resultEmbed = new EmbedBuilder()
-        .setTitle(outcome === 'win' ? '✅ Pub Match Approved (Win)' : '⚠️ Pub Match Recorded (Loss)')
+        .setTitle(outcome === 'win' ? '✅ Pub Match Approved (Win)' : '⚠️️ Pub Match Recorded (Loss)')
         .setColor(outcome === 'win' ? 0x2ecc71 : 0xe74c3c)
         .setDescription(
           `**Grader:** <@${interaction.user.id}>\n` +
