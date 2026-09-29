@@ -35,16 +35,10 @@ const STAFF_ROLE_ID = '1553324535128916070';            // Grader / Staff Role
 const BYPASS_USER_ID = '1497289874653450240';           // User allowed to bypass duplicate image check
 
 // --- 📊 COMPETITIVE RANK ROLES ---
+const CHAMPION_ROLE_ID = '1553330980515741706';          // Exclusive #1 Leaderboard Rank
 const RANK_ROLES = [
-  { name: 'Champion', minMmr: 20000, id: '1553330980515741706' },
-  { name: 'Grandmaster', minMmr: 17000, id: '1554029837180735569' },
-  { name: 'Master',   minMmr: 14000, id: '1554029406828240956' },
-  { name: 'Crimson',  minMmr: 12000, id: '1554029250556858428' },
   { name: 'Ruby',     minMmr: 10000, id: '1553330712613093448' },
   { name: 'Emerald',  minMmr: 5000,  id: '1553330578298773534' },
-  { name: 'Azure',     minMmr: 4000,  id: '1554030447577538661' },
-  { name: 'Sapphire',  minMmr: 3000,  id: '1554029074345627688' },
-  { name: 'Amethyst',  minMmr: 2000,  id: '1554028829662781550' },
   { name: 'Diamond',  minMmr: 1000,  id: '1553330139578769499' },
   { name: 'Platinum', minMmr: 500,   id: '1553330336795070575' },
   { name: 'Gold',     minMmr: 250,   id: '1553330034943463505' },
@@ -70,8 +64,8 @@ mongoose.connect(process.env.MONGO_URI);
 // --- 🚦 MATCHMAKING QUEUE (1v1) ---
 const active1v1Queue = [];
 const pendingMatches = new Map();
-const matchPlayersCache = new Map(); // Store p1 & p2 IDs per thread
-const recentImageHashes = new Set(); // Track image hashes to prevent true duplicates
+const matchPlayersCache = new Map(); 
+const recentImageHashes = new Set(); 
 
 // --- 🛠️ HELPER FUNCTIONS ---
 function getRankInfo(mmr) {
@@ -82,24 +76,55 @@ function generateRoomCode() {
   return 'AC-' + Math.floor(1000 + Math.random() * 9000);
 }
 
+// Updates normal ranks + handles the exclusive #1 Champion rank assignment server-wide
 async function updatePlayerRole(guild, member, currentMmr) {
   if (!member) return null;
-  const targetRank = getRankInfo(currentMmr);
   
-  // Find all rank roles the user currently has that do NOT match their new rank
-  const rolesToRemove = RANK_ROLES.filter(rank => rank.id !== targetRank.id && member.roles.cache.has(rank.id));
+  // 1. Handle regular baseline tiers (Ruby, Emerald, Diamond, etc.)
+  const targetRank = getRankInfo(currentMmr);
+  const standardRoles = RANK_ROLES.map(r => r.id);
+  const rolesToRemove = standardRoles.filter(id => id !== targetRank.id && member.roles.cache.has(id));
 
-  // Remove old rank roles if they have them
   if (rolesToRemove.length > 0) {
-    await Promise.all(rolesToRemove.map(rank => member.roles.remove(rank.id).catch(() => null)));
+    await Promise.all(rolesToRemove.map(id => member.roles.remove(id).catch(() => null)));
   }
 
-  // Add the new target rank role if they don't have it yet
   if (!member.roles.cache.has(targetRank.id)) {
     await member.roles.add(targetRank.id).catch(() => null);
-    return targetRank.name;
   }
-  return null;
+
+  // 2. Refresh who holds the #1 Champion crown globally across the entire database/guild
+  await refreshChampionRole(guild);
+
+  return targetRank.name;
+}
+
+async function refreshChampionRole(guild) {
+  if (!guild) return;
+  try {
+    // Find the player with the highest MMR
+    const topPlayer = await Player.findOne({}).sort({ mmr: -1 });
+    if (!topPlayer) return;
+
+    // Fetch all members who currently hold the Champion role in Discord
+    const championRole = await guild.roles.fetch(CHAMPION_ROLE_ID).catch(() => null);
+    if (!championRole) return;
+
+    // Remove Champion from anyone who is NOT the current top player
+    for (const [memberId, member] of championRole.members) {
+      if (memberId !== topPlayer.userId) {
+        await member.roles.remove(CHAMPION_ROLE_ID).catch(() => null);
+      }
+    }
+
+    // Give Champion to the top player if they don't have it yet
+    const topMember = await guild.members.fetch(topPlayer.userId).catch(() => null);
+    if (topMember && !topMember.roles.cache.has(CHAMPION_ROLE_ID)) {
+      await topMember.roles.add(CHAMPION_ROLE_ID).catch(() => null);
+    }
+  } catch (err) {
+    console.error("Error refreshing Champion role:", err);
+  }
 }
 
 function isStaff(member) {
@@ -167,7 +192,6 @@ client.on('messageCreate', async (message) => {
 
     if (attachment.contentType && attachment.contentType.startsWith('image/')) {
       
-      // Check for duplicate images unless the sender is the designated bypass user
       if (message.author.id !== BYPASS_USER_ID) {
         try {
           const response = await axios.get(attachment.url, { responseType: 'arraybuffer' });
@@ -181,7 +205,7 @@ client.on('messageCreate', async (message) => {
           }
 
           recentImageHashes.add(imageHash);
-          setTimeout(() => recentImageHashes.delete(imageHash), 7200000); // Expires after 2 hours
+          setTimeout(() => recentImageHashes.delete(imageHash), 7200000); 
         } catch (err) {
           console.error("Error hashing image:", err);
         }
@@ -196,7 +220,6 @@ client.on('messageCreate', async (message) => {
         .setImage(attachment.url);
 
       if (isMatchThread) {
-        // --- MATCH THREAD SUBMISSION ---
         let players = matchPlayersCache.get(message.channel.id) || [message.author.id, null];
         approveEmbed
           .setTitle('🔎 Match Thread Result Pending')
@@ -219,7 +242,6 @@ client.on('messageCreate', async (message) => {
         }
 
       } else if (isMatchResultsChannel) {
-        // --- PUBS (#match-results) SUBMISSION: Win, Lose, Reject buttons ---
         approveEmbed
           .setTitle('🔎 Pubs Match Result Pending (#match-results)')
           .setDescription(`**Submitter:** <@${message.author.id}>\n**Channel:** <#${message.channel.id}>\n**Jump:** [Message Link](${message.url})`);
@@ -243,7 +265,6 @@ client.on('messageCreate', async (message) => {
 // --- 🎛️ INTERACTION HANDLER ---
 client.on('interactionCreate', async (interaction) => {
 
-  // 1. Slash Commands
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === 'create-profile') {
       const metaUsername = interaction.options.getString('meta_username');
@@ -252,6 +273,9 @@ client.on('interactionCreate', async (interaction) => {
         { userId: interaction.user.id, username: interaction.user.username, metaUsername: metaUsername },
         { upsert: true }
       );
+      if (interaction.guild) {
+        await refreshChampionRole(interaction.guild);
+      }
       return interaction.reply({ content: `✅ Account registered! Meta ID: \`${metaUsername}\``, ephemeral: true });
     }
 
@@ -276,7 +300,8 @@ client.on('interactionCreate', async (interaction) => {
       
       let text = `🥇 **Arena Leaderboard** 🥇\n\n`;
       sorted.forEach((p, i) => {
-        text += `${i + 1}. **${p.username}** — [${getRankInfo(p.mmr).name}]${p.mmr.toFixed(0)} MMR\n`;
+        const rankName = i === 0 ? '👑 Champion' : getRankInfo(p.mmr).name;
+        text += `${i + 1}. **${p.username}** — [${rankName}]${p.mmr.toFixed(0)} MMR\n`;
       });
       return interaction.reply({ content: text });
     }
@@ -289,7 +314,10 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: `❌ No competitive dossier found for <@${targetUser.id}>.`, ephemeral: true });
       }
 
-      const rank = getRankInfo(player.mmr);
+      const topPlayer = await Player.findOne({}).sort({ mmr: -1 });
+      const isChamp = topPlayer && topPlayer.userId === targetUser.id;
+      const rankName = isChamp ? '👑 Champion' : getRankInfo(player.mmr).name;
+
       const winRate = (player.wins + player.losses) > 0 
         ? ((player.wins / (player.wins + player.losses)) * 100).toFixed(1) 
         : '0.0';
@@ -299,7 +327,7 @@ client.on('interactionCreate', async (interaction) => {
         .setColor(0x3498db)
         .addFields(
           { name: 'Meta Username', value: `\`${player.metaUsername || 'Not Linked'}\``, inline: true },
-          { name: 'Current Rank', value: `**${rank.name}**`, inline: true },
+          { name: 'Current Rank', value: `**${rankName}**`, inline: true },
           { name: 'MMR', value: `**${player.mmr.toFixed(0)}**`, inline: true },
           { name: 'Wins', value: `${player.wins}`, inline: true },
           { name: 'Losses', value: `${player.losses}`, inline: true },
@@ -320,7 +348,7 @@ client.on('interactionCreate', async (interaction) => {
 
       if (interaction.guild) {
         const member = await interaction.guild.members.fetch(target.id).catch(() => null);
-        updatePlayerRole(interaction.guild, member, player.mmr);
+        await updatePlayerRole(interaction.guild, member, player.mmr);
       }
       return interaction.reply({ content: `✅ Added **+${amount} MMR** to <@${target.id}>. New MMR: **${player.mmr.toFixed(0)}**` });
     }
@@ -336,7 +364,7 @@ client.on('interactionCreate', async (interaction) => {
 
       if (interaction.guild) {
         const member = await interaction.guild.members.fetch(target.id).catch(() => null);
-        updatePlayerRole(interaction.guild, member, player.mmr);
+        await updatePlayerRole(interaction.guild, member, player.mmr);
       }
       return interaction.reply({ content: `✅ Deducted **-${amount} MMR** from <@${target.id}>. New MMR: **${player.mmr.toFixed(0)}**` });
     }
@@ -352,7 +380,7 @@ client.on('interactionCreate', async (interaction) => {
 
       if (interaction.guild) {
         const member = await interaction.guild.members.fetch(target.id).catch(() => null);
-        updatePlayerRole(interaction.guild, member, player.mmr);
+        await updatePlayerRole(interaction.guild, member, player.mmr);
       }
       return interaction.reply({ content: `✅ Set <@${target.id}>'s MMR to **${player.mmr.toFixed(0)}**.` });
     }
@@ -360,11 +388,13 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.commandName === 'clearallmmr') {
       if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
       await Player.deleteMany({});
+      if (interaction.guild) {
+        await refreshChampionRole(interaction.guild);
+      }
       return interaction.reply({ content: "⚠️ **Database Wiped:** All MMR records and player profiles have been reset." });
     }
   }
 
-  // 2. Buttons
   if (interaction.isButton()) {
     if (interaction.customId === 'join_1v1_queue') {
       if (active1v1Queue.some(p => p.userId === interaction.user.id)) {
@@ -423,7 +453,6 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.message.delete().catch(() => {});
     }
 
-    // --- THREAD WIN BUTTON: Asks for BOTH user IDs and BOTH teams Kills/Deaths ---
     if (interaction.customId.startsWith('thread_win_')) {
       if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
       const [, , winnerId, loserId, channelId] = interaction.customId.split('_');
@@ -432,41 +461,16 @@ client.on('interactionCreate', async (interaction) => {
         .setCustomId(`submit_thread_stats_${winnerId}_${loserId}_${channelId}`)
         .setTitle('Grade Match Thread Stats');
 
-      const winnerKillsInput = new TextInputBuilder()
-        .setCustomId('winner_kills')
-        .setLabel('Winner Kills')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-      const winnerDeathsInput = new TextInputBuilder()
-        .setCustomId('winner_deaths')
-        .setLabel('Winner Deaths')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-      const loserKillsInput = new TextInputBuilder()
-        .setCustomId('loser_kills')
-        .setLabel('Loser Kills')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-      const loserDeathsInput = new TextInputBuilder()
-        .setCustomId('loser_deaths')
-        .setLabel('Loser Deaths')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
       modal.addComponents(
-        new ActionRowBuilder().addComponents(winnerKillsInput),
-        new ActionRowBuilder().addComponents(winnerDeathsInput),
-        new ActionRowBuilder().addComponents(loserKillsInput),
-        new ActionRowBuilder().addComponents(loserDeathsInput)
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('winner_kills').setLabel('Winner Kills').setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('winner_deaths').setLabel('Winner Deaths').setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('loser_kills').setLabel('Loser Kills').setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('loser_deaths').setLabel('Loser Deaths').setStyle(TextInputStyle.Short).setRequired(true))
       );
 
       await interaction.showModal(modal);
     }
 
-    // --- PUBS WIN BUTTON (#match-results): Win = +MMR ---
     if (interaction.customId.startsWith('pub_win_')) {
       if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
       const [, , submitterId, channelId] = interaction.customId.split('_');
@@ -475,27 +479,14 @@ client.on('interactionCreate', async (interaction) => {
         .setCustomId(`submit_pub_stats_${submitterId}_${channelId}_win`)
         .setTitle('Pub Match Win Stats');
 
-      const killsInput = new TextInputBuilder()
-        .setCustomId('kills')
-        .setLabel('Your Kills')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-      const deathsInput = new TextInputBuilder()
-        .setCustomId('deaths')
-        .setLabel('Your Deaths')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
       modal.addComponents(
-        new ActionRowBuilder().addComponents(killsInput),
-        new ActionRowBuilder().addComponents(deathsInput)
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('kills').setLabel('Your Kills').setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('deaths').setLabel('Your Deaths').setStyle(TextInputStyle.Short).setRequired(true))
       );
 
       await interaction.showModal(modal);
     }
 
-    // --- PUBS LOSE BUTTON (#match-results): Lose = -MMR ---
     if (interaction.customId.startsWith('pub_lose_')) {
       if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
       const [, , submitterId, channelId] = interaction.customId.split('_');
@@ -504,30 +495,16 @@ client.on('interactionCreate', async (interaction) => {
         .setCustomId(`submit_pub_stats_${submitterId}_${channelId}_lose`)
         .setTitle('Pub Match Loss Stats');
 
-      const killsInput = new TextInputBuilder()
-        .setCustomId('kills')
-        .setLabel('Your Kills')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
-      const deathsInput = new TextInputBuilder()
-        .setCustomId('deaths')
-        .setLabel('Your Deaths')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true);
-
       modal.addComponents(
-        new ActionRowBuilder().addComponents(killsInput),
-        new ActionRowBuilder().addComponents(deathsInput)
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('kills').setLabel('Your Kills').setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('deaths').setLabel('Your Deaths').setStyle(TextInputStyle.Short).setRequired(true))
       );
 
       await interaction.showModal(modal);
     }
   }
 
-  // 3. Modal Submissions
   if (interaction.isModalSubmit()) {
-    // --- THREAD MODAL SUBMISSION ---
     if (interaction.customId.startsWith('submit_thread_stats_')) {
       const [, , winnerId, loserId, channelId] = interaction.customId.split('_');
 
@@ -538,7 +515,6 @@ client.on('interactionCreate', async (interaction) => {
 
       await interaction.deferReply();
 
-      // Update Winner
       let winner = await Player.findOne({ userId: winnerId }) || new Player({ userId: winnerId });
       let winnerMmrGain = 7.5 + (winnerKills * 0.20) - (winnerDeaths * 0.25);
       winner.wins += 1;
@@ -547,7 +523,6 @@ client.on('interactionCreate', async (interaction) => {
       winner.mmr = Math.max(0, winner.mmr + winnerMmrGain);
       await winner.save();
 
-      // Update Loser
       let loser = await Player.findOne({ userId: loserId }) || new Player({ userId: loserId });
       let loserMmrLoss = -10 + (loserKills * 0.20) - (loserDeaths * 0.25);
       loser.losses += 1;
@@ -559,8 +534,8 @@ client.on('interactionCreate', async (interaction) => {
       if (interaction.guild) {
         const winMember = await interaction.guild.members.fetch(winnerId).catch(() => null);
         const loseMember = await interaction.guild.members.fetch(loserId).catch(() => null);
-        updatePlayerRole(interaction.guild, winMember, winner.mmr);
-        updatePlayerRole(interaction.guild, loseMember, loser.mmr);
+        await updatePlayerRole(interaction.guild, winMember, winner.mmr);
+        await updatePlayerRole(interaction.guild, loseMember, loser.mmr);
       }
 
       const resultEmbed = new EmbedBuilder()
@@ -586,12 +561,11 @@ client.on('interactionCreate', async (interaction) => {
       await interaction.message.delete().catch(() => {});
     }
 
-    // --- PUBS (#match-results) MODAL SUBMISSION ---
     if (interaction.customId.startsWith('submit_pub_stats_')) {
       const parts = interaction.customId.split('_');
       const submitterId = parts[3];
       const channelId = parts[4];
-      const outcome = parts[5]; // 'win' or 'lose'
+      const outcome = parts[5]; 
 
       const kills = parseInt(interaction.fields.getTextInputValue('kills'), 10) || 0;
       const deaths = parseInt(interaction.fields.getTextInputValue('deaths'), 10) || 0;
@@ -617,7 +591,7 @@ client.on('interactionCreate', async (interaction) => {
 
       if (interaction.guild) {
         const member = await interaction.guild.members.fetch(submitterId).catch(() => null);
-        updatePlayerRole(interaction.guild, member, player.mmr);
+        await updatePlayerRole(interaction.guild, member, player.mmr);
       }
 
       const resultEmbed = new EmbedBuilder()
@@ -642,7 +616,6 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-// --- 📩 1v1 MATCH CONFIRMATION & THREAD LAUNCH ---
 async function start1v1Match(players, guild) {
   const matchId = `match_${Date.now()}`;
   const confirmedUsers = new Set();
@@ -706,7 +679,6 @@ async function launch1v1Thread(matchData) {
     embeds: [embed]
   });
 
-  // ⏰ AUTO-DELETE THREAD AFTER 1 HOUR (3,600,000 ms)
   setTimeout(async () => {
     try {
       matchPlayersCache.delete(thread.id);
@@ -719,6 +691,5 @@ async function launch1v1Thread(matchData) {
   }, 3600000);
 }
 
-// --- 🌐 WEB SERVER & BOT LOGIN ---
 http.createServer((req, res) => res.end('Bot active')).listen(process.env.PORT || 3000);
 client.login(process.env.DISCORD_TOKEN);
