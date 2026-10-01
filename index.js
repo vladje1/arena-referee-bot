@@ -34,7 +34,7 @@ const APPROVAL_CHANNEL_ID = '1554974651434672177';      // Approval Channel ID
 const STAFF_ROLE_ID = 'YOUR_STAFF_ROLE_ID';            // Put your staff/admin role ID here
 const BYPASS_USER_ID = 'YOUR_BYPASS_USER_ID';           // Optional image bypass user ID
 
-// --- 📊 COMPETITIVE RANK ROLES ---
+// --- 📊 COMPETITIVE RANK ROLES (Sorted correctly from highest to lowest minMmr) ---
 const CHAMPION_ROLE_ID = '1553330980515741706';          
 const RANK_ROLES = [
   { name: 'Grandmaster', minMmr: 17000, id: '1554029837180735569' },
@@ -895,7 +895,7 @@ async function launch1v1Thread(matchData) {
     .setTitle(`🏟️ 1v1 Arena Match Started`)
     .setColor(0x2ecc71)
     .setDescription(
-      `🔑 **Private Room Code:** \`${roomCode}\`\n\g` +
+      `🔑 **Private Room Code:** \`${roomCode}\`\n\n` +
       `👤 **Player 1:** <@${p1.userId}>\n` +
       `👤 **Player 2:** <@${p2.userId}>\n\n` +
       `**Instructions:**\n` +
