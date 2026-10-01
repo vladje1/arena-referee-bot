@@ -28,28 +28,28 @@ const client = new Client({
 });
 
 // --- ⚙️ CONFIGURATION ---
-const QUEUE_CHANNEL_ID = '1553779380218630264';         // Ranked Queue & Match Threads Channel
-const MATCH_RESULTS_CHANNEL_ID = '1553172302420643950'; // #match-results Channel (Pubs)
-const APPROVAL_CHANNEL_ID = '1553177031523700838';      // #approve Channel (Staff Review)
-const STAFF_ROLE_ID = '1553324535128916070';            // Grader / Staff Role
-const BYPASS_USER_ID = '1497289874653450240';           // User allowed to bypass duplicate image check
+const QUEUE_CHANNEL_ID = 'YOUR_QUEUE_CHANNEL_ID'; // Put your main server queue channel ID here
+const MATCH_RESULTS_CHANNEL_ID = '1554974651237798087'; // Match Results Channel ID
+const APPROVAL_CHANNEL_ID = '1554974651434672177';      // Approval Channel ID
+const STAFF_ROLE_ID = 'YOUR_STAFF_ROLE_ID';            // Put your staff/admin role ID here
+const BYPASS_USER_ID = 'YOUR_BYPASS_USER_ID';           // Optional image bypass user ID
 
 // --- 📊 COMPETITIVE RANK ROLES ---
-const CHAMPION_ROLE_ID = '1553330980515741706';          // Exclusive #1 Leaderboard Rank (Min 20k MMR)[cite: 5]
+const CHAMPION_ROLE_ID = '1553330980515741706';          
 const RANK_ROLES = [
-  { name: 'Grandmaster', minMmr: 17000, id: '1554029837180735569' },[cite: 5]
-  { name: 'Master',      minMmr: 14000, id: '1554029406828240956' },[cite: 5]
-  { name: 'Crimson',     minMmr: 12000, id: '1554029250556858428' },[cite: 5]
-  { name: 'Ruby',        minMmr: 10000, id: '1553330712613093448' },[cite: 5]
-  { name: 'Emerald',     minMmr: 5000,  id: '1553330578298773534' },[cite: 5]
-  { name: 'Azure',       minMmr: 4000,  id: '1554030447577538661' },[cite: 5]
-  { name: 'Sapphire',    minMmr: 3000,  id: '1554029074345627688' },[cite: 5]
-  { name: 'Amethyst',    minMmr: 2000,  id: '1554028829662781550' },[cite: 5]
-  { name: 'Diamond',     minMmr: 1000,  id: '1553330139578769499' },[cite: 5]
-  { name: 'Platinum',    minMmr: 500,   id: '1553330336795070575' },[cite: 5]
-  { name: 'Gold',        minMmr: 250,   id: '1553330034943463505' },[cite: 5]
-  { name: 'Silver',      minMmr: 100,   id: '1553329893687697418' },[cite: 5]
-  { name: 'Bronze',      minMmr: 0,     id: '1553329700749705226' }[cite: 5]
+  { name: 'Grandmaster', minMmr: 17000, id: '1554029837180735569' },
+  { name: 'Master',      minMmr: 14000, id: '1554029406828240956' },
+  { name: 'Crimson',     minMmr: 12000, id: '1554029250556858428' },
+  { name: 'Ruby',        minMmr: 10000, id: '1553330712613093448' },
+  { name: 'Emerald',     minMmr: 5000,  id: '1553330578298773534' },
+  { name: 'Azure',       minMmr: 4000,  id: '1554030447577538661' },
+  { name: 'Sapphire',    minMmr: 3000,  id: '1554029074345627688' },
+  { name: 'Amethyst',    minMmr: 2000,  id: '155402882966278155' },
+  { name: 'Diamond',     minMmr: 1000,  id: '1553330139578769499' },
+  { name: 'Platinum',    minMmr: 500,   id: '1553330336795070575' },
+  { name: 'Gold',        minMmr: 250,   id: '1553330034943463505' },
+  { name: 'Silver',      minMmr: 100,   id: '1553329893687697418' },
+  { name: 'Bronze',      minMmr: 0,     id: '1553329700749705226' }
 ];
 
 // --- 📜 QUEST DEFINITIONS ---
@@ -76,10 +76,9 @@ const playerSchema = new mongoose.Schema({
 });
 const Player = mongoose.model('Player', playerSchema);
 
-// Audit schema to keep track of graded transactions so they can be easily undone/reverted
 const matchAuditSchema = new mongoose.Schema({
   approvalKey: { type: String, required: true, unique: true },
-  type: { type: String, required: true }, // 'thread' or 'pub'
+  type: { type: String, required: true }, 
   data: { type: Object, required: true },
   timestamp: { type: Date, default: Date.now }
 });
@@ -94,7 +93,7 @@ const matchPlayersCache = new Map();
 const recentImageHashes = new Set(); 
 const processedApprovals = new Set(); 
 
-// --- 🛠️️ HELPER FUNCTIONS ---
+// --- 🛠 HELPER FUNCTIONS ---
 function getRankInfo(mmr) {
   return RANK_ROLES.find(rank => mmr >= rank.minMmr) || RANK_ROLES[RANK_ROLES.length - 1];
 }
@@ -142,14 +141,17 @@ async function updatePlayerRole(guild, member, currentMmr) {
   
   const targetRank = getRankInfo(currentMmr);
   const standardRoles = RANK_ROLES.map(r => r.id);
-  const rolesToRemove = standardRoles.filter(id => id !== targetRank.id && member.roles.cache.has(id));
 
-  if (rolesToRemove.length > 0) {
-    await Promise.all(rolesToRemove.map(id => member.roles.remove(id).catch(() => null)));
+  for (const roleId of standardRoles) {
+    if (roleId !== targetRank.id && member.roles.cache.has(roleId)) {
+      await member.roles.remove(roleId).catch(() => {});
+    }
   }
 
   if (!member.roles.cache.has(targetRank.id)) {
-    await member.roles.add(targetRank.id).catch(() => null);
+    await member.roles.add(targetRank.id).catch(err => {
+      console.error(`Failed to assign role ${targetRank.name}:`, err);
+    });
   }
 
   await refreshChampionRole(guild);
@@ -167,7 +169,7 @@ async function refreshChampionRole(guild) {
       await member.roles.remove(CHAMPION_ROLE_ID).catch(() => null);
     }
 
-    if (topPlayer && topPlayer.mmr >= 20000) {[cite: 5]
+    if (topPlayer && topPlayer.mmr >= 20000) {
       const topMember = await guild.members.fetch(topPlayer.userId).catch(() => null);
       if (topMember) {
         await topMember.roles.add(CHAMPION_ROLE_ID).catch(() => null);
@@ -184,54 +186,16 @@ function isStaff(member) {
 
 // --- 🎛️ SLASH COMMANDS ---
 const commands = [
-  new SlashCommandBuilder()
-    .setName('create-profile')
-    .setDescription('Link Meta Username')
-    .addStringOption(opt => opt.setName('meta_username').setDescription('Your exact Meta ID').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('queue-panel')
-    .setDescription('Post 1v1 Arena Queue Panel (Staff Only)'),
-
-  new SlashCommandBuilder()
-    .setName('leaderboard')
-    .setDescription('Display top 10 Arena standings.'),
-
-  new SlashCommandBuilder()
-    .setName('stats')
-    .setDescription('View Arena profile.')
-    .addUserOption(opt => opt.setName('target').setDescription('Player (Optional)').setRequired(false)),
-
-  new SlashCommandBuilder()
-    .setName('quests')
-    .setDescription('View your available and completed quests & rewards.'),
-
-  new SlashCommandBuilder()
-    .setName('revert-match')
-    .setDescription('Staff Only: Revert a graded match using its approval ID/key')
-    .addStringOption(opt => opt.setName('approval_key').setDescription('The unique approval key of the match to undo').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('addmmr')
-    .setDescription('Staff Only: Add MMR')
-    .addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true))
-    .addNumberOption(opt => opt.setName('amount').setDescription('Amount').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('removemmr')
-    .setDescription('Staff Only: Remove MMR')
-    .addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true))
-    .addNumberOption(opt => opt.setName('amount').setDescription('Amount').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('setmmr')
-    .setDescription('Staff Only: Set exact MMR')
-    .addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true))
-    .addNumberOption(opt => opt.setName('value').setDescription('Exact value').setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('clearallmmr')
-    .setDescription('Staff Only: Wipe database')
+  new SlashCommandBuilder().setName('create-profile').setDescription('Link Meta Username').addStringOption(opt => opt.setName('meta_username').setDescription('Your exact Meta ID').setRequired(true)),
+  new SlashCommandBuilder().setName('queue-panel').setDescription('Post 1v1 Arena Queue Panel (Staff Only)'),
+  new SlashCommandBuilder().setName('leaderboard').setDescription('Display top 10 Arena standings.'),
+  new SlashCommandBuilder().setName('stats').setDescription('View Arena profile.').addUserOption(opt => opt.setName('target').setDescription('Player (Optional)').setRequired(false)),
+  new SlashCommandBuilder().setName('quests').setDescription('View your available and completed quests & rewards.'),
+  new SlashCommandBuilder().setName('revert-match').setDescription('Staff Only: Revert a graded match using its approval ID/key').addStringOption(opt => opt.setName('approval_key').setDescription('The unique approval key of the match to undo').setRequired(true)),
+  new SlashCommandBuilder().setName('addmmr').setDescription('Staff Only: Add MMR').addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true)).addNumberOption(opt => opt.setName('amount').setDescription('Amount').setRequired(true)),
+  new SlashCommandBuilder().setName('removemmr').setDescription('Staff Only: Remove MMR').addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true)).addNumberOption(opt => opt.setName('amount').setDescription('Amount').setRequired(true)),
+  new SlashCommandBuilder().setName('setmmr').setDescription('Staff Only: Set exact MMR').addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true)).addNumberOption(opt => opt.setName('value').setDescription('Exact value').setRequired(true)),
+  new SlashCommandBuilder().setName('clearallmmr').setDescription('Staff Only: Wipe database')
 ].map(c => c.toJSON());
 
 client.once('ready', async () => {
@@ -362,8 +326,8 @@ client.on('interactionCreate', async (interaction) => {
       
       let text = `🥇 **Arena Leaderboard** 🥇\n\n`;
       sorted.forEach((p, i) => {
-        const isChamp = i === 0 && p.mmr >= 20000;[cite: 5]
-        const rankName = isChamp ? '👑 Champion' : getRankInfo(p.mmr).name;[cite: 5]
+        const isChamp = i === 0 && p.mmr >= 20000;
+        const rankName = isChamp ? '👑 Champion' : getRankInfo(p.mmr).name;
         text += `${i + 1}. **${p.username}** — [${rankName}]${p.mmr.toFixed(0)} MMR\n`;
       });
       return interaction.reply({ content: text });
@@ -378,8 +342,8 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       const topPlayer = await Player.findOne({}).sort({ mmr: -1 });
-      const isChamp = topPlayer && topPlayer.userId === targetUser.id && player.mmr >= 20000;[cite: 5]
-      const rankName = isChamp ? '👑 Champion' : getRankInfo(player.mmr).name;[cite: 5]
+      const isChamp = topPlayer && topPlayer.userId === targetUser.id && player.mmr >= 20000;
+      const rankName = isChamp ? '👑 Champion' : getRankInfo(player.mmr).name;
 
       const winRate = (player.wins + player.losses) > 0 
         ? ((player.wins / (player.wins + player.losses)) * 100).toFixed(1) 
@@ -501,7 +465,6 @@ client.on('interactionCreate', async (interaction) => {
         }
       }
 
-      // Remove the audit log and allow reuse
       await MatchAudit.deleteOne({ approvalKey });
       processedApprovals.delete(approvalKey);
 
@@ -572,7 +535,7 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) {
     if (interaction.customId === 'join_1v1_queue') {
       if (active1v1Queue.some(p => p.userId === interaction.user.id)) {
-        return interaction.reply({ content: '⚠️️ You are already in the queue!', ephemeral: true });
+        return interaction.reply({ content: '⚠ You are already in the queue!', ephemeral: true });
       }
 
       active1v1Queue.push({ userId: interaction.user.id, username: interaction.user.username });
@@ -629,7 +592,16 @@ client.on('interactionCreate', async (interaction) => {
 
       const sourceChannel = await interaction.guild.channels.fetch(channelId).catch(() => null);
       if (sourceChannel) {
-        await sourceChannel.send('❌ Your match submission was rejected by staff.');
+        try {
+          const originalMessage = await sourceChannel.messages.fetch(approvalKey).catch(() => null);
+          if (originalMessage) {
+            await originalMessage.reply({ content: '❌ Your match submission was rejected by staff.' });
+          } else {
+            await sourceChannel.send('❌ Your match submission was rejected by staff.');
+          }
+        } catch (e) {
+          await sourceChannel.send('❌ Your match submission was rejected by staff.');
+        }
       }
     }
 
@@ -639,7 +611,7 @@ client.on('interactionCreate', async (interaction) => {
       const approvalKey = parts[parts.length - 1];
 
       if (processedApprovals.has(approvalKey)) {
-        return interaction.reply({ content: '⚠️️ This submission has already been graded!', ephemeral: true });
+        return interaction.reply({ content: '⚠ This submission has already been graded!', ephemeral: true });
       }
 
       const winnerId = parts[2];
@@ -729,7 +701,6 @@ client.on('interactionCreate', async (interaction) => {
 
       await interaction.deferReply();
 
-      // Winner Stats update
       let winner = await Player.findOne({ userId: winnerId }) || new Player({ userId: winnerId });
       let winnerMmrGain = 7.5 + (winnerKills * 0.20) - (winnerDeaths * 0.25);
       winner.wins += 1;
@@ -741,7 +712,6 @@ client.on('interactionCreate', async (interaction) => {
       await checkAndAwardQuests(winner, interaction.guild, winMember);
       await winner.save();
 
-      // Loser Stats update
       let loser = await Player.findOne({ userId: loserId }) || new Player({ userId: loserId });
       let loserMmrLoss = -10 + (loserKills * 0.20) - (loserDeaths * 0.25);
       loser.losses += 1;
@@ -758,7 +728,6 @@ client.on('interactionCreate', async (interaction) => {
         await updatePlayerRole(interaction.guild, loseMember, loser.mmr);
       }
 
-      // Save to audit log so it can be reverted if needed
       await MatchAudit.create({
         approvalKey,
         type: 'thread',
@@ -780,7 +749,17 @@ client.on('interactionCreate', async (interaction) => {
 
       const sourceChannel = await interaction.guild.channels.fetch(channelId).catch(() => null);
       if (sourceChannel) {
-        await sourceChannel.send({ embeds: [resultEmbed] });
+        try {
+          const originalMessage = await sourceChannel.messages.fetch(approvalKey).catch(() => null);
+          if (originalMessage) {
+            await originalMessage.reply({ embeds: [resultEmbed] });
+          } else {
+            await sourceChannel.send({ embeds: [resultEmbed] });
+          }
+        } catch (e) {
+          await sourceChannel.send({ embeds: [resultEmbed] });
+        }
+
         if (sourceChannel.isThread()) {
           await sourceChannel.setArchived(true).catch(() => null);
         }
@@ -830,7 +809,6 @@ client.on('interactionCreate', async (interaction) => {
         await updatePlayerRole(interaction.guild, member, player.mmr);
       }
 
-      // Save to audit log for potential revert
       await MatchAudit.create({
         approvalKey,
         type: 'pub',
@@ -838,12 +816,12 @@ client.on('interactionCreate', async (interaction) => {
       });
 
       const resultEmbed = new EmbedBuilder()
-        .setTitle(outcome === 'win' ? '✅ Pub Match Approved (Win)' : '⚠️ Pub Match Recorded (Loss)')
+        .setTitle(outcome === 'win' ? '✅ Pub Match Approved (Win)' : '⚠ Pub Match Recorded (Loss)')
         .setColor(outcome === 'win' ? 0x2ecc71 : 0xe74c3c)
         .setDescription(
           `**Grader:** <@${interaction.user.id}>\n` +
           `**Player:** <@${submitterId}>\n` +
-          `**Approval ID:** \`[${approvalKey}]\` *(Use /revert-match to undo if wrong)*\n` +
+          `**Approval ID:** \`${approvalKey}\` *(Use /revert-match to undo if wrong)*\n` +
           `**MMR Change:** ${mmrChange >= 0 ? '+' : ''}${mmrChange.toFixed(1)} MMR → **${player.mmr.toFixed(0)}**\n` +
           `📊 **Stats:** ${kills} Kills / ${deaths} Deaths`
         );
@@ -852,7 +830,16 @@ client.on('interactionCreate', async (interaction) => {
 
       const sourceChannel = await interaction.guild.channels.fetch(channelId).catch(() => null);
       if (sourceChannel) {
-        await sourceChannel.send({ embeds: [resultEmbed] });
+        try {
+          const originalMessage = await sourceChannel.messages.fetch(approvalKey).catch(() => null);
+          if (originalMessage) {
+            await originalMessage.reply({ embeds: [resultEmbed] });
+          } else {
+            await sourceChannel.send({ embeds: [resultEmbed] });
+          }
+        } catch (e) {
+          await sourceChannel.send({ embeds: [resultEmbed] });
+        }
       }
 
       await interaction.message.edit({ components: [] }).catch(() => {});
@@ -870,7 +857,7 @@ async function start1v1Match(players, guild) {
   for (const p of players) {
     try {
       const user = await client.users.fetch(p.userId);
-      await user.send({ content: '⚔️ **1v1 Arena Match Found!** Press accept within 40 seconds.', components: [row] });
+      await user.send({ content: '⚔ **1v1 Arena Match Found!** Press accept within 40 seconds.', components: [row] });
     } catch (e) {}
   }
 
@@ -908,7 +895,7 @@ async function launch1v1Thread(matchData) {
     .setTitle(`🏟️ 1v1 Arena Match Started`)
     .setColor(0x2ecc71)
     .setDescription(
-      `🔑 **Private Room Code:** \`${roomCode}\`\n\n` +
+      `🔑 **Private Room Code:** \`${roomCode}\`\n\g` +
       `👤 **Player 1:** <@${p1.userId}>\n` +
       `👤 **Player 2:** <@${p2.userId}>\n\n` +
       `**Instructions:**\n` +
