@@ -29,9 +29,10 @@ const client = new Client({
 
 // --- ⚙️ CONFIGURATION ---
 const QUEUE_CHANNEL_ID = 'YOUR_QUEUE_CHANNEL_ID'; // Put your main server queue channel ID here
-const MATCH_RESULTS_CHANNEL_ID = '1554974651237798087'; // Match Results Channel ID
-const APPROVAL_CHANNEL_ID = '1554974651434672177';      // Approval Channel ID
+const MATCH_RESULTS_CHANNEL_ID = '1553172302420643950'; // Updated Match Results Channel ID
+const APPROVAL_CHANNEL_ID = '1553177031523700838';      // Updated Approval Channel ID
 const STAFF_ROLE_ID = 'YOUR_STAFF_ROLE_ID';            // Put your staff/admin role ID here
+const EXTRA_STAFF_ROLE_ID = '1553324535128916070';     // Additional Staff Role ID with permissions
 const BYPASS_USER_ID = 'YOUR_BYPASS_USER_ID';           // Optional image bypass user ID
 
 // --- 📊 COMPETITIVE RANK ROLES (Sorted correctly from highest to lowest minMmr) ---
@@ -72,7 +73,10 @@ const playerSchema = new mongoose.Schema({
   losses: { type: Number, default: 0 },
   kills: { type: Number, default: 0 },
   deaths: { type: Number, default: 0 },
-  completedQuests: { type: [String], default: [] }
+  completedQuests: { type: [String], default: [] },
+  questBaselineKills: { type: Number, default: 0 },
+  questBaselineDeaths: { type: Number, default: 0 },
+  questResetTimestamp: { type: Date, default: null }
 });
 const Player = mongoose.model('Player', playerSchema);
 
@@ -105,16 +109,22 @@ function generateRoomCode() {
 async function checkAndAwardQuests(player, guild, member) {
   let newlyCompleted = [];
 
+  const effectiveKills = player.kills - (player.questBaselineKills || 0);
+  const effectiveDeaths = player.deaths - (player.questBaselineDeaths || 0);
+
   for (const quest of QUESTS) {
     if (player.completedQuests.includes(quest.id)) continue;
 
     let unlocked = false;
-    if (quest.type === 'total_kills' && player.kills >= quest.goal) {
+    if (quest.type === 'total_kills' && effectiveKills >= quest.goal) {
       unlocked = true;
-    } else if (quest.type === 'total_deaths' && player.deaths >= quest.goal) {
+    } else if (quest.type === 'total_deaths' && effectiveDeaths >= quest.goal) {
       unlocked = true;
     } else if (quest.type === 'rank' && player.mmr >= quest.minMmr) {
-      unlocked = true;
+      // For rank quests, check if they reached it after reset or check current mmr if no reset date set
+      if (!player.questResetTimestamp || player.updatedAt >= player.questResetTimestamp || player.mmr >= quest.minMmr) {
+        unlocked = true;
+      }
     }
 
     if (unlocked) {
@@ -181,7 +191,11 @@ async function refreshChampionRole(guild) {
 }
 
 function isStaff(member) {
-  return member && (member.permissions.has('Administrator') || member.roles.cache.has(STAFF_ROLE_ID));
+  return member && (
+    member.permissions.has('Administrator') || 
+    member.roles.cache.has(STAFF_ROLE_ID) || 
+    member.roles.cache.has(EXTRA_STAFF_ROLE_ID)
+  );
 }
 
 // --- 🎛️ SLASH COMMANDS ---
@@ -192,6 +206,7 @@ const commands = [
   new SlashCommandBuilder().setName('stats').setDescription('View Arena profile.').addUserOption(opt => opt.setName('target').setDescription('Player (Optional)').setRequired(false)),
   new SlashCommandBuilder().setName('quests').setDescription('View your available and completed quests & rewards.'),
   new SlashCommandBuilder().setName('revert-match').setDescription('Staff Only: Revert a graded match using its approval ID/key').addStringOption(opt => opt.setName('approval_key').setDescription('The unique approval key of the match to undo').setRequired(true)),
+  new SlashCommandBuilder().setName('resetquests').setDescription('Staff Only: Reset all player quest progress for a new update.'),
   new SlashCommandBuilder().setName('addmmr').setDescription('Staff Only: Add MMR').addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true)).addNumberOption(opt => opt.setName('amount').setDescription('Amount').setRequired(true)),
   new SlashCommandBuilder().setName('removemmr').setDescription('Staff Only: Remove MMR').addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true)).addNumberOption(opt => opt.setName('amount').setDescription('Amount').setRequired(true)),
   new SlashCommandBuilder().setName('setmmr').setDescription('Staff Only: Set exact MMR').addUserOption(opt => opt.setName('target').setDescription('Target player').setRequired(true)).addNumberOption(opt => opt.setName('value').setDescription('Exact value').setRequired(true)),
@@ -376,6 +391,9 @@ client.on('interactionCreate', async (interaction) => {
         await player.save();
       }
 
+      const effectiveKills = player.kills - (player.questBaselineKills || 0);
+      const effectiveDeaths = player.deaths - (player.questBaselineDeaths || 0);
+
       const embed = new EmbedBuilder()
         .setTitle(`📜 Quests & Achievements — ${player.username}`)
         .setColor(0x9b59b6)
@@ -386,9 +404,9 @@ client.on('interactionCreate', async (interaction) => {
         let progressText = '';
 
         if (quest.type === 'total_kills') {
-          progressText = `Progress: ${Math.min(player.kills, quest.goal)}/${quest.goal} Kills`;
+          progressText = `Progress: ${Math.min(effectiveKills, quest.goal)}/${quest.goal} Kills`;
         } else if (quest.type === 'total_deaths') {
-          progressText = `Progress: ${Math.min(player.deaths, quest.goal)}/${quest.goal} Deaths`;
+          progressText = `Progress: ${Math.min(effectiveDeaths, quest.goal)}/${quest.goal} Deaths`;
         } else if (quest.type === 'rank') {
           progressText = `Requirement: Reach ${quest.minMmr} MMR`;
         }
@@ -402,6 +420,23 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
+    if (interaction.commandName === 'resetquests') {
+      if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
+      
+      const now = new Date();
+      // Reset all completed quests and store the current player totals as baselines so only new stats count
+      const allPlayers = await Player.find({});
+      for (const p of allPlayers) {
+        p.completedQuests = [];
+        p.questBaselineKills = p.kills;
+        p.questBaselineDeaths = p.deaths;
+        p.questResetTimestamp = now;
+        await p.save();
+      }
+
+      return interaction.reply({ content: `🔄 **Quests Reset Successful!** All player quest progress has been wiped, and new stats will now count starting from this moment.` });
     }
 
     if (interaction.commandName === 'revert-match') {
