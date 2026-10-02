@@ -35,7 +35,7 @@ const STAFF_ROLE_ID = 'YOUR_STAFF_ROLE_ID';            // Put your staff/admin r
 const EXTRA_STAFF_ROLE_ID = '1553324535128916070';     // Additional Staff Role ID with permissions
 const BYPASS_USER_ID = 'YOUR_BYPASS_USER_ID';           // Optional image bypass user ID
 
-// --- 📊 COMPETITIVE RANK ROLES (Sorted correctly from highest to lowest minMmr) ---
+// --- 📊 COMPETITIVE RANK ROLES ---
 const CHAMPION_ROLE_ID = '1553330980515741706';          
 const RANK_ROLES = [
   { name: 'Grandmaster', minMmr: 17000, id: '1554029837180735569' },
@@ -121,7 +121,6 @@ async function checkAndAwardQuests(player, guild, member) {
     } else if (quest.type === 'total_deaths' && effectiveDeaths >= quest.goal) {
       unlocked = true;
     } else if (quest.type === 'rank' && player.mmr >= quest.minMmr) {
-      // For rank quests, check if they reached it after reset or check current mmr if no reset date set
       if (!player.questResetTimestamp || player.updatedAt >= player.questResetTimestamp || player.mmr >= quest.minMmr) {
         unlocked = true;
       }
@@ -238,7 +237,7 @@ client.on('messageCreate', async (message) => {
 
           if (recentImageHashes.has(imageHash)) {
             await message.delete().catch(() => {});
-            const warning = await message.channel.send(`⚠️ <@${message.author.id}> This exact image has already been submitted or used! Duplicate screenshots are not allowed.`);
+            const warning = await message.channel.send(`⚠️️ <@${message.author.id}> This exact image has already been submitted or used! Duplicate screenshots are not allowed.`);
             setTimeout(() => warning.delete().catch(() => {}), 5000);
             return;
           }
@@ -425,8 +424,10 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.commandName === 'resetquests') {
       if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
       
+      // Defer reply immediately so Discord doesn't give an "Unknown interaction" timeout error
+      await interaction.deferReply({ ephemeral: true });
+
       const now = new Date();
-      // Reset all completed quests and store the current player totals as baselines so only new stats count
       const allPlayers = await Player.find({});
       for (const p of allPlayers) {
         p.completedQuests = [];
@@ -436,7 +437,7 @@ client.on('interactionCreate', async (interaction) => {
         await p.save();
       }
 
-      return interaction.reply({ content: `🔄 **Quests Reset Successful!** All player quest progress has been wiped, and new stats will now count starting from this moment.` });
+      return interaction.editReply({ content: `🔄 **Quests Reset Successful!** All player quest progress has been wiped, and new stats will now count starting from this moment.` });
     }
 
     if (interaction.commandName === 'revert-match') {
