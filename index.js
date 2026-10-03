@@ -31,7 +31,7 @@ const client = new Client({
 const QUEUE_CHANNEL_ID = 'YOUR_QUEUE_CHANNEL_ID'; // Put your main server queue channel ID here
 const MATCH_RESULTS_CHANNEL_ID = '1553172302420643950'; // Updated Match Results Channel ID
 const APPROVAL_CHANNEL_ID = '1553177031523700838';      // Updated Approval Channel ID
-const STAFF_ROLE_ID = 'YOUR_STAFF_ROLE_ID';            // Put your staff/admin role ID here
+const STAFF_ROLE_ID = '1553324535128916070';            // Main Staff Role ID
 const EXTRA_STAFF_ROLE_ID = '1553324535128916070';     // Additional Staff Role ID with permissions
 const BYPASS_USER_ID = 'YOUR_BYPASS_USER_ID';           // Optional image bypass user ID
 
@@ -237,7 +237,7 @@ client.on('messageCreate', async (message) => {
 
           if (recentImageHashes.has(imageHash)) {
             await message.delete().catch(() => {});
-            const warning = await message.channel.send(`⚠️️ <@${message.author.id}> This exact image has already been submitted or used! Duplicate screenshots are not allowed.`);
+            const warning = await message.channel.send(`⚠ <@${message.author.id}> This exact image has already been submitted or used! Duplicate screenshots are not allowed.`);
             setTimeout(() => warning.delete().catch(() => {}), 5000);
             return;
           }
