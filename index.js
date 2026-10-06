@@ -322,9 +322,9 @@ let approveEmbed = new EmbedBuilder()
 .setImage(attachment.url);
 const approvalKey = message.id;
 // Populate text field descriptions automatically based on vision insights
-const aiFieldDescription = scanData.success
-? \n\n🤖 **AI Automated Diagnosis:**\n• **Detected Bar Outcome:** ${scanData.outcome}\n• **Estimated Kills:** ${scanData.kills}\n• **Estimated Deaths:** ${scanData.deaths}
-: \n\n🤖 **AI Automated Diagnosis:** Failed to clarify watch text accurately. Manual confirmation required.;
+const aiFieldDescription = scanData.success 
+  ? `\n\n🤖 **AI Automated Diagnosis:**\n• **Detected Bar Outcome:** ${scanData.outcome}\n• **Estimated Kills:** ${scanData.kills}\n• **Estimated Deaths:** ${scanData.deaths}`
+  : `\n\n🤖 **AI Automated Diagnosis:** Failed to clarify watch text accurately. Manual confirmation required.`;
 if (isMatchThread) {
 let players = matchPlayersCache.get(message.channel.id) || [message.author.id, null];
 approveEmbed
