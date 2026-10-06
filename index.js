@@ -282,7 +282,7 @@ new SlashCommandBuilder().setName('setmmr').setDescription('Staff Only: Set exac
 new SlashCommandBuilder().setName('clearallmmr').setDescription('Staff Only: Wipe database')
 ].map(c => c.toJSON());
 client.once('ready', async () => {
-console.log(✅ Animal Company Bot Ready as ${client.user.tag});
+console.log(`✅ Animal Company Bot Ready as ${client.user.tag}`);
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 await rest.put(Routes.applicationCommands(client.user.id), { body: commands }).catch(console.error);
 });
