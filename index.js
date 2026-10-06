@@ -253,7 +253,6 @@ async function refreshChampionRole(guild) {
     if (topPlayer && topPlayer.mmr >= 20000) {
       const topMember = await guild.members.fetch(topPlayer.userId).catch(() => null);
       if (topMember) {
-Use code with caution.
 await topMember.roles.add(CHAMPION_ROLE_ID).catch(() => null);
 }
 }
