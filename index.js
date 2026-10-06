@@ -266,7 +266,6 @@ function isStaff(member) {
 const commands = [
   new SlashCommandBuilder().setName('create-profile').setDescription('Link Meta Username').addStringOption(opt => opt.setName('meta_username').setDescription('Your exact Meta ID').setRequired(true)),
   new SlashCommandBuilder().setName('queue-panel').setDescription('Post 1v1 Arena Queue Panel (Staff Only)'),
-Use code with caution.
 new SlashCommandBuilder().setName('leaderboard').setDescription('Display top 10 Arena standings.'),
 new SlashCommandBuilder().setName('stats').setDescription('View Arena profile.').addUserOption(opt => opt.setName('target').setDescription('Player (Optional)').setRequired(false)),
 new SlashCommandBuilder().setName('quests').setDescription('View your available and completed quests & rewards.'),
