@@ -17,9 +17,6 @@ const mongoose = require('mongoose');
 const http = require('http');
 const crypto = require('crypto');
 const axios = require('axios');
-const Jimp = require('jimp');
-const Tesseract = require('tesseract.js');
-const path = require('path');
 
 const client = new Client({
   intents: [
@@ -98,67 +95,6 @@ const pendingMatches = new Map();
 const matchPlayersCache = new Map(); 
 const recentImageHashes = new Set(); 
 const processedApprovals = new Set(); 
-
-// --- 🤖 HARDENED SCANNER FOR DEPLOYMENT ---
-async function scanWatchInterface(imageUrl) {
-  try {
-    const mainImg = await Jimp.read(imageUrl);
-    const imgWidth = mainImg.bitmap.width;
-    const imgHeight = mainImg.bitmap.height;
-
-    // Adjusted crop box to fully capture the green stats block containing kills and deaths
-    const uiBoxX = Math.floor(imgWidth * 0.45);
-    const uiBoxY = Math.floor(imgHeight * 0.67);
-    const uiBoxW = Math.floor(imgWidth * 0.14);
-    const uiBoxH = Math.floor(imgHeight * 0.10);
-
-    const watchRegion = mainImg.clone().crop(uiBoxX, uiBoxY, uiBoxW, uiBoxH);
-
-    let redCount = 0;
-    let blueCount = 0;
-
-    watchRegion.scan(0, 0, watchRegion.bitmap.width, watchRegion.bitmap.height, function(x, y, idx) {
-      const red = this.bitmap.data[idx + 0];
-      const green = this.bitmap.data[idx + 1];
-      const blue = this.bitmap.data[idx + 2];
-
-      if (red > 140 && green < 40 && blue < 40) redCount++;
-      if (blue > 140 && red < 50 && green < 120) blueCount++;
-    });
-
-    const calculatedWinner = redCount > blueCount ? 'WIN' : 'LOSE';
-
-    watchRegion.scale(4);
-    watchRegion.greyscale().contrast(0.9).normalize();
-
-    const processedBuffer = await watchRegion.getBufferAsync(Jimp.MIME_PNG);
-
-    const worker = await Tesseract.createWorker('eng', 1, {
-      cachePath: path.join(__dirname, 'tessdata'),
-    });
-    
-    await worker.setParameters({
-      tessedit_char_whitelist: '0123456789',
-      tessedit_pageseg_mode: '6', // Assume a single uniform block of text
-    });
-
-    const { data: { text } } = await worker.recognize(processedBuffer);
-    await worker.terminate();
-
-    const numbersList = text.replace(/[^0-9\s]/g, '').trim().split(/\s+/).map(v => parseInt(v, 10)).filter(v => !isNaN(v));
-
-    return {
-      success: true,
-      outcome: calculatedWinner,
-      kills: numbersList[0] !== undefined ? numbersList[0] : 0,   
-      deaths: numbersList[1] !== undefined ? numbersList[1] : 0   
-    };
-
-  } catch (err) {
-    console.error('Automated UI Screen Scanning Failed:', err);
-    return { success: false, outcome: 'TIE', kills: 0, deaths: 0 };
-  }
-}
 
 // --- 🛠 BOT HELPER FUNCTIONS ---
 function getRankInfo(mmr) {
@@ -304,23 +240,18 @@ client.on('messageCreate', async (message) => {
       }
       const approvalChannel = await message.guild.channels.fetch(APPROVAL_CHANNEL_ID).catch(() => null);
       if (!approvalChannel) return;
-      const processingNotice = await message.channel.send("🤖 AI Reader checking watch stats, please hold...");
-      const scanData = await scanWatchInterface(attachment.url);
-      await processingNotice.delete().catch(() => {});
+
       const actionRow = new ActionRowBuilder();
       let approveEmbed = new EmbedBuilder()
         .setColor(0xf1c40f)
         .setImage(attachment.url);
       const approvalKey = message.id;
-      const aiFieldDescription = scanData.success
-        ? `\n\n🤖 **AI Automated Diagnosis:**\n• **Detected Bar Outcome:** ${scanData.outcome}\n• **Estimated Kills:** ${scanData.kills}\n• **Estimated Deaths:** ${scanData.deaths}`
-        : `\n\n🤖 **AI Automated Diagnosis:** Failed to clarify watch text accurately. Manual confirmation required.`;
       
       if (isMatchThread) {
         let players = matchPlayersCache.get(message.channel.id) || [message.author.id, null];
         approveEmbed
           .setTitle('🔎 Match Thread Result Pending')
-          .setDescription(`**Submitter:** <@${message.author.id}>\n**Thread:** <#${message.channel.id}>\n**Approval ID:** \`${approvalKey}\`${aiFieldDescription}`);
+          .setDescription(`**Submitter:** <@${message.author.id}>\n**Thread:** <#${message.channel.id}>\n**Approval ID:** \`${approvalKey}\``);
         if (players[0] && players[1]) {
           const user1 = await client.users.fetch(players[0]).catch(() => ({ username: 'Player 1' }));
           const user2 = await client.users.fetch(players[1]).catch(() => ({ username: 'Player 2' }));
@@ -338,10 +269,10 @@ client.on('messageCreate', async (message) => {
       } else if (isMatchResultsChannel) {
         approveEmbed
           .setTitle('🔎 Pubs Match Result Pending (#match-results)')
-          .setDescription(`**Submitter:** <@${message.author.id}>\n**Channel:** <#${message.channel.id}>\n**Approval ID:** \`${approvalKey}\`${aiFieldDescription}`);
+          .setDescription(`**Submitter:** <@${message.author.id}>\n**Channel:** <#${message.channel.id}>\n**Approval ID:** \`${approvalKey}\``);
         actionRow.addComponents(
-          new ButtonBuilder().setCustomId(`pub_win_${message.author.id}_${message.channel.id}_${approvalKey}`).setLabel('Confirm Win').setStyle(scanData.outcome === 'WIN' ? ButtonStyle.Success : ButtonStyle.Secondary),
-          new ButtonBuilder().setCustomId(`pub_lose_${message.author.id}_${message.channel.id}_${approvalKey}`).setLabel('Confirm Loss').setStyle(scanData.outcome === 'LOSE' ? ButtonStyle.Danger : ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId(`pub_win_${message.author.id}_${message.channel.id}_${approvalKey}`).setLabel('Confirm Win').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId(`pub_lose_${message.author.id}_${message.channel.id}_${approvalKey}`).setLabel('Confirm Loss').setStyle(ButtonStyle.Danger),
           new ButtonBuilder().setCustomId(`approve_reject_${message.channel.id}_${approvalKey}`).setLabel('Reject').setStyle(ButtonStyle.Secondary)
         );
       }
@@ -642,20 +573,32 @@ client.on('interactionCreate', async (interaction) => {
       const winnerId = parts[2];
       const loserId = parts[3];
       const channelId = parts[4];
-      const embed = interaction.message.embeds[0];
-      const desc = embed ? embed.description : '';
-      const killsMatch = desc.match(/Estimated Kills:\s*(\d+)/);
-      const deathsMatch = desc.match(/Estimated Deaths:\s*(\d+)/);
-      const defaultKills = killsMatch ? killsMatch[1] : '0';
-      const defaultDeaths = deathsMatch ? deathsMatch[1] : '0';
       const modal = new ModalBuilder()
         .setCustomId(`submit_thread_stats_${winnerId}_${loserId}_${channelId}_${approvalKey}`)
         .setTitle('Grade Match Thread Stats');
       modal.addComponents(
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('winner_kills').setLabel('Winner Kills').setStyle(TextInputStyle.Short).setValue(defaultKills).setRequired(true)),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('winner_deaths').setLabel('Winner Deaths').setStyle(TextInputStyle.Short).setValue(defaultDeaths).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('winner_kills').setLabel('Winner Kills').setStyle(TextInputStyle.Short).setValue('0').setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('winner_deaths').setLabel('Winner Deaths').setStyle(TextInputStyle.Short).setValue('0').setRequired(true)),
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('loser_kills').setLabel('Loser Kills').setStyle(TextInputStyle.Short).setValue('0').setRequired(true)),
         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('loser_deaths').setLabel('Loser Deaths').setStyle(TextInputStyle.Short).setValue('0').setRequired(true))
+      );
+      await interaction.showModal(modal);
+    }
+    if (interaction.customId.startsWith('approve_manual_')) {
+      if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
+      const parts = interaction.customId.split('_');
+      const submitterId = parts[2];
+      const channelId = parts[3];
+      const approvalKey = parts[4];
+      const modal = new ModalBuilder()
+        .setCustomId(`submit_manual_stats_${submitterId}_${channelId}_${approvalKey}`)
+        .setTitle('Grade Match Stats');
+      modal.addComponents(
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('winner_id').setLabel('Winner User ID').setStyle(TextInputStyle.Short).setValue(submitterId).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('loser_id').setLabel('Loser User ID').setStyle(TextInputStyle.Short).setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('winner_kills').setLabel('Winner Kills').setStyle(TextInputStyle.Short).setValue('0').setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('winner_deaths').setLabel('Winner Deaths').setStyle(TextInputStyle.Short).setValue('0').setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('loser_kills').setLabel('Loser Kills').setStyle(TextInputStyle.Short).setValue('0').setRequired(true))
       );
       await interaction.showModal(modal);
     }
@@ -668,18 +611,12 @@ client.on('interactionCreate', async (interaction) => {
       }
       const submitterId = parts[2];
       const channelId = parts[3];
-      const embed = interaction.message.embeds[0];
-      const desc = embed ? embed.description : '';
-      const killsMatch = desc.match(/Estimated Kills:\s*(\d+)/);
-      const deathsMatch = desc.match(/Estimated Deaths:\s*(\d+)/);
-      const defaultKills = killsMatch ? killsMatch[1] : '0';
-      const defaultDeaths = deathsMatch ? deathsMatch[1] : '0';
       const modal = new ModalBuilder()
         .setCustomId(`submit_pub_stats_${submitterId}_${channelId}_win_${approvalKey}`)
         .setTitle('Pub Match Win Stats');
       modal.addComponents(
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('kills').setLabel('Your Kills').setStyle(TextInputStyle.Short).setValue(defaultKills).setRequired(true)),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('deaths').setLabel('Your Deaths').setStyle(TextInputStyle.Short).setValue(defaultDeaths).setRequired(true))
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('kills').setLabel('Your Kills').setStyle(TextInputStyle.Short).setValue('0').setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('deaths').setLabel('Your Deaths').setStyle(TextInputStyle.Short).setValue('0').setRequired(true))
       );
       await interaction.showModal(modal);
     }
@@ -692,38 +629,43 @@ client.on('interactionCreate', async (interaction) => {
       }
       const submitterId = parts[2];
       const channelId = parts[3];
-      const embed = interaction.message.embeds[0];
-      const desc = embed ? embed.description : '';
-      const killsMatch = desc.match(/Estimated Kills:\s*(\d+)/);
-      const deathsMatch = desc.match(/Estimated Deaths:\s*(\d+)/);
-      const defaultKills = killsMatch ? killsMatch[1] : '0';
-      const defaultDeaths = deathsMatch ? deathsMatch[1] : '0';
       const modal = new ModalBuilder()
         .setCustomId(`submit_pub_stats_${submitterId}_${channelId}_lose_${approvalKey}`)
         .setTitle('Pub Match Loss Stats');
       modal.addComponents(
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('kills').setLabel('Your Kills').setStyle(TextInputStyle.Short).setValue(defaultKills).setRequired(true)),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('deaths').setLabel('Your Deaths').setStyle(TextInputStyle.Short).setValue(defaultDeaths).setRequired(true))
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('kills').setLabel('Your Kills').setStyle(TextInputStyle.Short).setValue('0').setRequired(true)),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('deaths').setLabel('Your Deaths').setStyle(TextInputStyle.Short).setValue('0').setRequired(true))
       );
       await interaction.showModal(modal);
     }
   }
 
   if (interaction.isModalSubmit()) {
-    if (interaction.customId.startsWith('submit_thread_stats_')) {
+    if (interaction.customId.startsWith('submit_thread_stats_') || interaction.customId.startsWith('submit_manual_stats_')) {
       const parts = interaction.customId.split('_');
-      const winnerId = parts[3];
-      const loserId = parts[4];
-      const channelId = parts[5];
-      const approvalKey = parts[6];
+      let winnerId, loserId, channelId, approvalKey;
+      if (interaction.customId.startsWith('submit_thread_stats_')) {
+        winnerId = parts[3];
+        loserId = parts[4];
+        channelId = parts[5];
+        approvalKey = parts[6];
+      } else {
+        winnerId = interaction.fields.getTextInputValue('winner_id');
+        loserId = interaction.fields.getTextInputValue('loser_id');
+        channelId = parts[4];
+        approvalKey = parts[5];
+      }
+
       if (processedApprovals.has(approvalKey)) {
         return interaction.reply({ content: '⚠️ This submission has already been processed!', ephemeral: true });
       }
       processedApprovals.add(approvalKey);
+
       const winnerKills = parseInt(interaction.fields.getTextInputValue('winner_kills'), 10) || 0;
-      const winnerDeaths = parseInt(interaction.fields.getTextInputValue('winner_deaths'), 10) || 0;
+      const winnerDeaths = interaction.customId.startsWith('submit_thread_stats_') ? parseInt(interaction.fields.getTextInputValue('winner_deaths'), 10) || 0 : 0;
       const loserKills = parseInt(interaction.fields.getTextInputValue('loser_kills'), 10) || 0;
-      const loserDeaths = parseInt(interaction.fields.getTextInputValue('loser_deaths'), 10) || 0;
+      const loserDeaths = interaction.customId.startsWith('submit_thread_stats_') ? parseInt(interaction.fields.getTextInputValue('loser_deaths'), 10) || 0 : 0;
+
       await interaction.deferReply();
       let winner = await Player.findOne({ userId: winnerId }) || new Player({ userId: winnerId });
       let winnerMmrGain = 7.5 + (winnerKills * 0.20) - (winnerDeaths * 0.25);
@@ -734,6 +676,7 @@ client.on('interactionCreate', async (interaction) => {
       const winMember = interaction.guild ? await interaction.guild.members.fetch(winnerId).catch(() => null) : null;
       await checkAndAwardQuests(winner, interaction.guild, winMember);
       await winner.save();
+
       let loser = await Player.findOne({ userId: loserId }) || new Player({ userId: loserId });
       let loserMmrLoss = -10 + (loserKills * 0.20) - (loserDeaths * 0.25);
       loser.losses += 1;
@@ -743,6 +686,7 @@ client.on('interactionCreate', async (interaction) => {
       const loseMember = interaction.guild ? await interaction.guild.members.fetch(loserId).catch(() => null) : null;
       await checkAndAwardQuests(loser, interaction.guild, loseMember);
       await loser.save();
+
       if (interaction.guild) {
         await updatePlayerRole(interaction.guild, winMember, winner.mmr);
         await updatePlayerRole(interaction.guild, loseMember, loser.mmr);
