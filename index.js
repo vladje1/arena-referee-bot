@@ -106,11 +106,11 @@ async function scanWatchInterface(imageUrl) {
     const imgWidth = mainImg.bitmap.width;
     const imgHeight = mainImg.bitmap.height;
 
-    // Adjusted tighter crop box specifically focused on the watch HUD layout
-    const uiBoxX = Math.floor(imgWidth * 0.46);
-    const uiBoxY = Math.floor(imgHeight * 0.46);
-    const uiBoxW = Math.floor(imgWidth * 0.16);
-    const uiBoxH = Math.floor(imgHeight * 0.16);
+    // Adjusted coordinates lowered to target the bottom statistics block on the watch HUD
+    const uiBoxX = Math.floor(imgWidth * 0.45);
+    const uiBoxY = Math.floor(imgHeight * 0.62);
+    const uiBoxW = Math.floor(imgWidth * 0.18);
+    const uiBoxH = Math.floor(imgHeight * 0.14);
 
     const watchRegion = mainImg.clone().crop(uiBoxX, uiBoxY, uiBoxW, uiBoxH);
 
@@ -882,7 +882,7 @@ async function launch1v1Thread(matchData) {
   if (!channel) return;
   const roomCode = generateRoomCode();
   const thread = await channel.threads.create({
-    name: `⚔️️ 1v1 Arena Match - Code ${roomCode}`,
+    name: `⚔ 1v1 Arena Match - Code ${roomCode}`,
     autoArchiveDuration: 60
   });
   const p1 = players[0];
