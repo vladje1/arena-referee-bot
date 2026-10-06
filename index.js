@@ -103,14 +103,14 @@ const processedApprovals = new Set();
 async function scanWatchInterface(imageUrl) {
   try {
     const mainImg = await Jimp.read(imageUrl);
-    
     const imgWidth = mainImg.bitmap.width;
     const imgHeight = mainImg.bitmap.height;
 
-    const uiBoxX = Math.floor(imgWidth * 0.43);
-    const uiBoxY = Math.floor(imgHeight * 0.43);
-    const uiBoxW = Math.floor(imgWidth * 0.22);
-    const uiBoxH = Math.floor(imgHeight * 0.22);
+    // Adjusted tighter crop box specifically focused on the watch HUD layout
+    const uiBoxX = Math.floor(imgWidth * 0.46);
+    const uiBoxY = Math.floor(imgHeight * 0.46);
+    const uiBoxW = Math.floor(imgWidth * 0.16);
+    const uiBoxH = Math.floor(imgHeight * 0.16);
 
     const watchRegion = mainImg.clone().crop(uiBoxX, uiBoxY, uiBoxW, uiBoxH);
 
@@ -128,10 +128,10 @@ async function scanWatchInterface(imageUrl) {
 
     const calculatedWinner = redCount > blueCount ? 'WIN' : 'LOSE';
 
-    watchRegion.greyscale().contrast(0.8);
+    watchRegion.greyscale().contrast(1.0);
     watchRegion.scan(0, 0, watchRegion.bitmap.width, watchRegion.bitmap.height, function(x, y, idx) {
       const value = this.bitmap.data[idx];
-      const cleanVal = value > 195 ? 255 : 0;
+      const cleanVal = value > 160 ? 255 : 0;
       this.bitmap.data[idx + 0] = cleanVal;
       this.bitmap.data[idx + 1] = cleanVal;
       this.bitmap.data[idx + 2] = cleanVal;
@@ -145,6 +145,7 @@ async function scanWatchInterface(imageUrl) {
     
     await worker.setParameters({
       tessedit_char_whitelist: '0123456789',
+      tessedit_pageseg_mode: '6', // Treat image as a single uniform block of text
     });
 
     const { data: { text } } = await worker.recognize(processedBuffer);
@@ -693,7 +694,7 @@ client.on('interactionCreate', async (interaction) => {
       const parts = interaction.customId.split('_');
       const approvalKey = parts[parts.length - 1];
       if (processedApprovals.has(approvalKey)) {
-        return interaction.reply({ content: '⚠️️ This submission has already been graded!', ephemeral: true });
+        return interaction.reply({ content: '⚠️ This submission has already been graded!', ephemeral: true });
       }
       const submitterId = parts[2];
       const channelId = parts[3];
@@ -881,7 +882,7 @@ async function launch1v1Thread(matchData) {
   if (!channel) return;
   const roomCode = generateRoomCode();
   const thread = await channel.threads.create({
-    name: `⚔️ 1v1 Arena Match - Code ${roomCode}`,
+    name: `⚔️️ 1v1 Arena Match - Code ${roomCode}`,
     autoArchiveDuration: 60
   });
   const p1 = players[0];
