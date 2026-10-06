@@ -30,7 +30,7 @@ const client = new Client({
   ]
 });
 
-// --- ⚙️ CONFIGURATION ---
+// --- ⚙️️ CONFIGURATION ---
 const QUEUE_CHANNEL_ID = 'YOUR_QUEUE_CHANNEL_ID'; 
 const MATCH_RESULTS_CHANNEL_ID = '1553172302420643950'; 
 const APPROVAL_CHANNEL_ID = '1553177031523700838';      
@@ -106,11 +106,11 @@ async function scanWatchInterface(imageUrl) {
     const imgWidth = mainImg.bitmap.width;
     const imgHeight = mainImg.bitmap.height;
 
-    // Adjusted coordinates lowered to target the bottom statistics block on the watch HUD
-    const uiBoxX = Math.floor(imgWidth * 0.45);
-    const uiBoxY = Math.floor(imgHeight * 0.62);
-    const uiBoxW = Math.floor(imgWidth * 0.18);
-    const uiBoxH = Math.floor(imgHeight * 0.14);
+    // Adjusted coordinates to target the bottom statistics block precisely
+    const uiBoxX = Math.floor(imgWidth * 0.43);
+    const uiBoxY = Math.floor(imgHeight * 0.60);
+    const uiBoxW = Math.floor(imgWidth * 0.22);
+    const uiBoxH = Math.floor(imgHeight * 0.18);
 
     const watchRegion = mainImg.clone().crop(uiBoxX, uiBoxY, uiBoxW, uiBoxH);
 
@@ -128,14 +128,9 @@ async function scanWatchInterface(imageUrl) {
 
     const calculatedWinner = redCount > blueCount ? 'WIN' : 'LOSE';
 
-    watchRegion.greyscale().contrast(1.0);
-    watchRegion.scan(0, 0, watchRegion.bitmap.width, watchRegion.bitmap.height, function(x, y, idx) {
-      const value = this.bitmap.data[idx];
-      const cleanVal = value > 160 ? 255 : 0;
-      this.bitmap.data[idx + 0] = cleanVal;
-      this.bitmap.data[idx + 1] = cleanVal;
-      this.bitmap.data[idx + 2] = cleanVal;
-    });
+    // Upscale 3x and normalize/contrast to make tiny watch digits readable for Tesseract
+    watchRegion.scale(3);
+    watchRegion.greyscale().contrast(0.8).normalize();
 
     const processedBuffer = await watchRegion.getBufferAsync(Jimp.MIME_PNG);
 
