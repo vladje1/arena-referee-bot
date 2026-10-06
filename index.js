@@ -30,7 +30,7 @@ const client = new Client({
   ]
 });
 
-// --- ⚙️️ CONFIGURATION ---
+// --- ⚙ CONFIGURATION ---
 const QUEUE_CHANNEL_ID = 'YOUR_QUEUE_CHANNEL_ID'; 
 const MATCH_RESULTS_CHANNEL_ID = '1553172302420643950'; 
 const APPROVAL_CHANNEL_ID = '1553177031523700838';      
@@ -106,11 +106,11 @@ async function scanWatchInterface(imageUrl) {
     const imgWidth = mainImg.bitmap.width;
     const imgHeight = mainImg.bitmap.height;
 
-    // Adjusted coordinates to target the bottom statistics block precisely
-    const uiBoxX = Math.floor(imgWidth * 0.43);
-    const uiBoxY = Math.floor(imgHeight * 0.60);
-    const uiBoxW = Math.floor(imgWidth * 0.22);
-    const uiBoxH = Math.floor(imgHeight * 0.18);
+    // Tighter crop focused exclusively on the bottom green stats box
+    const uiBoxX = Math.floor(imgWidth * 0.46);
+    const uiBoxY = Math.floor(imgHeight * 0.68);
+    const uiBoxW = Math.floor(imgWidth * 0.12);
+    const uiBoxH = Math.floor(imgHeight * 0.08);
 
     const watchRegion = mainImg.clone().crop(uiBoxX, uiBoxY, uiBoxW, uiBoxH);
 
@@ -128,9 +128,8 @@ async function scanWatchInterface(imageUrl) {
 
     const calculatedWinner = redCount > blueCount ? 'WIN' : 'LOSE';
 
-    // Upscale 3x and normalize/contrast to make tiny watch digits readable for Tesseract
-    watchRegion.scale(3);
-    watchRegion.greyscale().contrast(0.8).normalize();
+    watchRegion.scale(4); // Higher upscale for tiny font clarity
+    watchRegion.greyscale().contrast(0.9).normalize();
 
     const processedBuffer = await watchRegion.getBufferAsync(Jimp.MIME_PNG);
 
@@ -140,7 +139,7 @@ async function scanWatchInterface(imageUrl) {
     
     await worker.setParameters({
       tessedit_char_whitelist: '0123456789',
-      tessedit_pageseg_mode: '6', // Treat image as a single uniform block of text
+      tessedit_pageseg_mode: '7', // Treat image as a single text line
     });
 
     const { data: { text } } = await worker.recognize(processedBuffer);
