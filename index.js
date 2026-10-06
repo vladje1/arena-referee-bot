@@ -19,6 +19,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const Jimp = require('jimp');
 const Tesseract = require('tesseract.js');
+const path = require('path');
 
 const client = new Client({
   intents: [
@@ -98,21 +99,14 @@ const matchPlayersCache = new Map();
 const recentImageHashes = new Set(); 
 const processedApprovals = new Set(); 
 
-// --- 🛠 AUTOMATED COMPUTER VISION SYSTEM ---
-/**
- * Automatically scans an attachment URL to read game data.
- * Crucial configuration note: Coordinates target a standardized square crop context.
- * Adjust the pixel coordinate offsets if your community captures vary wildly from full HD.
- */
+// --- 🤖 HARDENED SCANNER FOR DEPLOYMENT ---
 async function scanWatchInterface(imageUrl) {
   try {
     const mainImg = await Jimp.read(imageUrl);
     
-    // 1. Locate the watch (Assumes localized centering, otherwise falls back to a broad regional crop)
     const imgWidth = mainImg.bitmap.width;
     const imgHeight = mainImg.bitmap.height;
 
-    // Define relative bounding areas for standard 1:1 or 16:9 gameplay images
     const uiBoxX = Math.floor(imgWidth * 0.43);
     const uiBoxY = Math.floor(imgHeight * 0.43);
     const uiBoxW = Math.floor(imgWidth * 0.22);
@@ -120,7 +114,6 @@ async function scanWatchInterface(imageUrl) {
 
     const watchRegion = mainImg.clone().crop(uiBoxX, uiBoxY, uiBoxW, uiBoxH);
 
-    // 2. Bar Color Sweep (Checks Red vs Blue bar volumes)
     let redCount = 0;
     let blueCount = 0;
 
@@ -129,20 +122,15 @@ async function scanWatchInterface(imageUrl) {
       const green = this.bitmap.data[idx + 1];
       const blue = this.bitmap.data[idx + 2];
 
-      // Isolate vibrant UI red pixels
       if (red > 140 && green < 40 && blue < 40) redCount++;
-      // Isolate vibrant UI blue pixels
       if (blue > 140 && red < 50 && green < 120) blueCount++;
     });
 
     const calculatedWinner = redCount > blueCount ? 'WIN' : 'LOSE';
 
-    // 3. Digit Analysis (Isolates pure white data fonts)
-    // Convert region to grayscale and apply an aggressive bright filter
     watchRegion.greyscale().contrast(0.8);
     watchRegion.scan(0, 0, watchRegion.bitmap.width, watchRegion.bitmap.height, function(x, y, idx) {
       const value = this.bitmap.data[idx];
-      // Keep only bright white text strokes, blacking out the map grid and tracking noise
       const cleanVal = value > 195 ? 255 : 0;
       this.bitmap.data[idx + 0] = cleanVal;
       this.bitmap.data[idx + 1] = cleanVal;
@@ -151,19 +139,24 @@ async function scanWatchInterface(imageUrl) {
 
     const processedBuffer = await watchRegion.getBufferAsync(Jimp.MIME_PNG);
 
-    // Feed clean monochrome array directly into the Tesseract OCR engine
-    const { data: { text } } = await Tesseract.recognize(processedBuffer, 'eng', {
-      tessedit_char_whitelist: '0123456789\n '
+    const worker = await Tesseract.createWorker('eng', 1, {
+      cachePath: path.join(__dirname, 'tessdata'),
+    });
+    
+    await worker.setParameters({
+      tessedit_char_whitelist: '0123456789',
     });
 
-    // Parse out raw numbers from the string layout
+    const { data: { text } } = await worker.recognize(processedBuffer);
+    await worker.terminate();
+
     const numbersList = text.replace(/[^0-9\s]/g, '').trim().split(/\s+/).map(v => parseInt(v, 10)).filter(v => !isNaN(v));
 
     return {
       success: true,
       outcome: calculatedWinner,
-      kills: numbersList[1] || 0,   // Pulls center watch metrics
-      deaths: numbersList[2] || 0   // Pulls lower watch metrics
+      kills: numbersList[0] !== undefined ? numbersList[0] : 0,   
+      deaths: numbersList[1] !== undefined ? numbersList[1] : 0   
     };
 
   } catch (err) {
@@ -253,24 +246,27 @@ async function refreshChampionRole(guild) {
     if (topPlayer && topPlayer.mmr >= 20000) {
       const topMember = await guild.members.fetch(topPlayer.userId).catch(() => null);
       if (topMember) {
-await topMember.roles.add(CHAMPION_ROLE_ID).catch(() => null);
+        await topMember.roles.add(CHAMPION_ROLE_ID).catch(() => null);
+      }
+    }
+  } catch (err) {
+    console.error("Error refreshing Champion role:", err);
+  }
 }
-}
-} catch (err) {
-console.error("Error refreshing Champion role:", err);
-}
-}
+
 function isStaff(member) {
-return member && (
-member.permissions.has('Administrator') ||
-member.roles.cache.has(STAFF_ROLE_ID) ||
-member.roles.cache.has(EXTRA_STAFF_ROLE_ID)
-);
+  return member && (
+    member.permissions.has('Administrator') || 
+    member.roles.cache.has(STAFF_ROLE_ID) || 
+    member.roles.cache.has(EXTRA_STAFF_ROLE_ID)
+  );
 }
+
 // --- 🎛️ SLASH COMMANDS ---
 const commands = [
-new SlashCommandBuilder().setName('create-profile').setDescription('Link Meta Username').addStringOption(opt => opt.setName('meta_username').setDescription('Your exact Meta ID').setRequired(true)),
-new SlashCommandBuilder().setName('queue-panel').setDescription('Post 1v1 Arena Queue Panel (Staff Only)'),
+  new SlashCommandBuilder().setName('create-profile').setDescription('Link Meta Username').addStringOption(opt => opt.setName('meta_username').setDescription('Your exact Meta ID').setRequired(true)),
+  new SlashCommandBuilder().setName('queue-panel').setDescription('Post 1v1 Arena Queue Panel (Staff Only)'),
+Use code with caution.
 new SlashCommandBuilder().setName('leaderboard').setDescription('Display top 10 Arena standings.'),
 new SlashCommandBuilder().setName('stats').setDescription('View Arena profile.').addUserOption(opt => opt.setName('target').setDescription('Player (Optional)').setRequired(false)),
 new SlashCommandBuilder().setName('quests').setDescription('View your available and completed quests & rewards.'),
@@ -282,11 +278,11 @@ new SlashCommandBuilder().setName('setmmr').setDescription('Staff Only: Set exac
 new SlashCommandBuilder().setName('clearallmmr').setDescription('Staff Only: Wipe database')
 ].map(c => c.toJSON());
 client.once('ready', async () => {
-console.log(`✅ Animal Company Bot Ready as ${client.user.tag}`);
+console.log(✅ Animal Company Bot Ready as ${client.user.tag});
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 await rest.put(Routes.applicationCommands(client.user.id), { body: commands }).catch(console.error);
 });
-// --- 📩 LISTEN FOR SCREENSHOTS (WITH AUTOMATED DATA GRABBING) ---
+// --- 📩 LISTEN FOR SCREENSHOTS ---
 client.on('messageCreate', async (message) => {
 if (message.author.bot) return;
 const isMatchThread = message.channel.isThread() && message.channel.parentId === QUEUE_CHANNEL_ID;
@@ -300,7 +296,7 @@ const response = await axios.get(attachment.url, { responseType: 'arraybuffer' }
 const imageHash = crypto.createHash('md5').update(response.data).digest('hex');
 if (recentImageHashes.has(imageHash)) {
 await message.delete().catch(() => {});
-const warning = await message.channel.send(`⚠ <@${message.author.id}> This exact image has already been submitted or used! Duplicate screenshots are not allowed.`);
+const warning = await message.channel.send(⚠ <@${message.author.id}> This exact image has already been submitted or used! Duplicate screenshots are not allowed.);
 setTimeout(() => warning.delete().catch(() => {}), 5000);
 return;
 }
@@ -312,7 +308,6 @@ console.error("Error hashing image:", err);
 }
 const approvalChannel = await message.guild.channels.fetch(APPROVAL_CHANNEL_ID).catch(() => null);
 if (!approvalChannel) return;
-// TRIGGER AUTOMATED VISION ENGINE
 const processingNotice = await message.channel.send("🤖 AI Reader checking watch stats, please hold...");
 const scanData = await scanWatchInterface(attachment.url);
 await processingNotice.delete().catch(() => {});
@@ -321,16 +316,15 @@ let approveEmbed = new EmbedBuilder()
 .setColor(0xf1c40f)
 .setImage(attachment.url);
 const approvalKey = message.id;
-// Populate text field descriptions automatically based on vision insights
-const aiFieldDescription = scanData.success 
-  ? `\n\n🤖 **AI Automated Diagnosis:**\n• **Detected Bar Outcome:** ${scanData.outcome}\n• **Estimated Kills:** ${scanData.kills}\n• **Estimated Deaths:** ${scanData.deaths}`
-  : `\n\n🤖 **AI Automated Diagnosis:** Failed to clarify watch text accurately. Manual confirmation required.`;
+const aiFieldDescription = scanData.success
+? \n\n🤖 **AI Automated Diagnosis:**\n• **Detected Bar Outcome:** ${scanData.outcome}\n• **Estimated Kills:** ${scanData.kills}\n• **Estimated Deaths:** ${scanData.deaths}
+: \n\n🤖 **AI Automated Diagnosis:** Failed to clarify watch text accurately. Manual confirmation required.;
 if (isMatchThread) {
 let players = matchPlayersCache.get(message.channel.id) || [message.author.id, null];
 approveEmbed
 .setTitle('🔎 Match Thread Result Pending')
 .setDescription(**Submitter:** <@${message.author.id}>\n**Thread:** <#${message.channel.id}>\n**Approval ID:** \${approvalKey}`${aiFieldDescription}`);
-if (players[1]) {
+if (players[0] && players[1]) {
 const user1 = await client.users.fetch(players[0]).catch(() => ({ username: 'Player 1' }));
 const user2 = await client.users.fetch(players[1]).catch(() => ({ username: 'Player 2' }));
 actionRow.addComponents(
@@ -348,20 +342,17 @@ new ButtonBuilder().setCustomId(approve_reject_${message.channel.id}_${approvalK
 approveEmbed
 .setTitle('🔎 Pubs Match Result Pending (#match-results)')
 .setDescription(**Submitter:** <@${message.author.id}>\n**Channel:** <#${message.channel.id}>\n**Approval ID:** \${approvalKey}`${aiFieldDescription}`);
-// Re-prioritize button variants to dynamically align with the visual results found by Jimp
 actionRow.addComponents(
 new ButtonBuilder().setCustomId(pub_win_${message.author.id}_${message.channel.id}_${approvalKey}).setLabel('Confirm Win').setStyle(scanData.outcome === 'WIN' ? ButtonStyle.Success : ButtonStyle.Secondary),
 new ButtonBuilder().setCustomId(pub_lose_${message.author.id}_${message.channel.id}_${approvalKey}).setLabel('Confirm Loss').setStyle(scanData.outcome === 'LOSE' ? ButtonStyle.Danger : ButtonStyle.Secondary),
 new ButtonBuilder().setCustomId(approve_reject_${message.channel.id}_${approvalKey}).setLabel('Reject').setStyle(ButtonStyle.Secondary)
 );
 }
-const sentApprovalMessage = await approvalChannel.send({
+await approvalChannel.send({
 content: <@&${STAFF_ROLE_ID}> New match screenshot submitted for review (ID: \${approvalKey}`):`,
 embeds: [approveEmbed],
 components: [actionRow]
 });
-// AUTOMATED MODAL POPULATION PASS-THROUGH FOR STAFF
-// Pre-stores the text inputs within custom button caches if needed, or logs info fields
 }
 }
 });
@@ -595,7 +586,7 @@ if (idx !== -1) {
 active1v1Queue.splice(idx, 1);
 return interaction.reply({ content: '🏃 Removed from queue.', ephemeral: true });
 }
-return interaction.reply({ content: '⚠️ You are not in the queue.', ephemeral: true });
+return interaction.reply({ content: '🏃 You are not in the queue.', ephemeral: true });
 }
 if (interaction.customId.startsWith('accept_1v1_')) {
 const matchId = interaction.customId.replace('accept_1v1_', '');
@@ -647,7 +638,6 @@ return interaction.reply({ content: '⚠ This submission has already been graded
 const winnerId = parts[2];
 const loserId = parts[3];
 const channelId = parts[4];
-// Pull existing embed description to pre-populate current AI estimations if valid
 const embed = interaction.message.embeds[0];
 const desc = embed ? embed.description : '';
 const killsMatch = desc.match(/Estimated Kills:\s*(\d+)/);
@@ -719,7 +709,7 @@ if (interaction.customId.startsWith('submit_thread_stats_')) {
 const parts = interaction.customId.split('_');
 const winnerId = parts[3];
 const loserId = parts[4];
-const channelId = parts;
+const channelId = parts[5];
 const approvalKey = parts[6];
 if (processedApprovals.has(approvalKey)) {
 return interaction.reply({ content: '⚠️ This submission has already been processed!', ephemeral: true });
@@ -787,7 +777,7 @@ if (interaction.customId.startsWith('submit_pub_stats_')) {
 const parts = interaction.customId.split('_');
 const submitterId = parts[3];
 const channelId = parts[4];
-const outcome = parts;
+const outcome = parts[5];
 const approvalKey = parts[6];
 if (processedApprovals.has(approvalKey)) {
 return interaction.reply({ content: '⚠️ This submission has already been processed!', ephemeral: true });
