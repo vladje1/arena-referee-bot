@@ -300,7 +300,7 @@ const response = await axios.get(attachment.url, { responseType: 'arraybuffer' }
 const imageHash = crypto.createHash('md5').update(response.data).digest('hex');
 if (recentImageHashes.has(imageHash)) {
 await message.delete().catch(() => {});
-const warning = await message.channel.send(⚠ <@${message.author.id}> This exact image has already been submitted or used! Duplicate screenshots are not allowed.);
+const warning = await message.channel.send(`⚠ <@${message.author.id}> This exact image has already been submitted or used! Duplicate screenshots are not allowed.`);
 setTimeout(() => warning.delete().catch(() => {}), 5000);
 return;
 }
