@@ -106,11 +106,11 @@ async function scanWatchInterface(imageUrl) {
     const imgWidth = mainImg.bitmap.width;
     const imgHeight = mainImg.bitmap.height;
 
-    // Tighter crop focused exclusively on the bottom green stats box
-    const uiBoxX = Math.floor(imgWidth * 0.46);
-    const uiBoxY = Math.floor(imgHeight * 0.68);
-    const uiBoxW = Math.floor(imgWidth * 0.12);
-    const uiBoxH = Math.floor(imgHeight * 0.08);
+    // Adjusted crop box to fully capture the green stats block containing kills and deaths
+    const uiBoxX = Math.floor(imgWidth * 0.45);
+    const uiBoxY = Math.floor(imgHeight * 0.67);
+    const uiBoxW = Math.floor(imgWidth * 0.14);
+    const uiBoxH = Math.floor(imgHeight * 0.10);
 
     const watchRegion = mainImg.clone().crop(uiBoxX, uiBoxY, uiBoxW, uiBoxH);
 
@@ -128,7 +128,7 @@ async function scanWatchInterface(imageUrl) {
 
     const calculatedWinner = redCount > blueCount ? 'WIN' : 'LOSE';
 
-    watchRegion.scale(4); // Higher upscale for tiny font clarity
+    watchRegion.scale(4);
     watchRegion.greyscale().contrast(0.9).normalize();
 
     const processedBuffer = await watchRegion.getBufferAsync(Jimp.MIME_PNG);
@@ -139,7 +139,7 @@ async function scanWatchInterface(imageUrl) {
     
     await worker.setParameters({
       tessedit_char_whitelist: '0123456789',
-      tessedit_pageseg_mode: '7', // Treat image as a single text line
+      tessedit_pageseg_mode: '6', // Assume a single uniform block of text
     });
 
     const { data: { text } } = await worker.recognize(processedBuffer);
