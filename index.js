@@ -23,7 +23,7 @@ const client = new Client({
 });
 
 // --- ⚙ CONFIGURATION ---
-const STAFF_ROLE_ID = '1553324535128916070';            
+const STAFF_ROLE_ID = '1555612897349210242';            
 const EXTRA_STAFF_ROLE_ID = '1553324535128916070';     
 
 // --- 📜 QUEST DEFINITIONS ---
