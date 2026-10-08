@@ -119,11 +119,11 @@ const commands = [
     .addUserOption(o => o.setName('user').setDescription('The user to invite').setRequired(true)),
   new SlashCommandBuilder().setName('leaveteam').setDescription('Leave your current team'),
   new SlashCommandBuilder().setName('teammembers').setDescription('List a team\'s members')
-    .addStringOption(o => o.setName('team').setDescription('Team name (leave blank for your own)').setRequired(false)),
+    .addStringOption(o => o.setName('team').setDescription('Team name (leave blank for your own)').setRequired(false).setAutocomplete(true)),
   new SlashCommandBuilder().setName('startscrim').setDescription('Challenge another team leader to a scrim (Leaders/Co-Owners)')
-    .addStringOption(o => o.setName('team').setDescription('Target team name').setRequired(true)),
+    .addStringOption(o => o.setName('team').setDescription('Target team name').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('requestteam').setDescription('Ask a team leader if you can join')
-    .addStringOption(o => o.setName('team').setDescription('Target team name').setRequired(true)),
+    .addStringOption(o => o.setName('team').setDescription('Target team name').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('changeteamsettings').setDescription('Change team settings (Leaders/Co-Owners)')
     .addStringOption(o => o.setName('color').setDescription('Hex color code (e.g. #ff0000)').setRequired(false)),
   new SlashCommandBuilder().setName('setcoleader').setDescription('Set or clear your team co-owner (Primary Leader)')
@@ -140,7 +140,7 @@ const commands = [
 
   new SlashCommandBuilder().setName('activitychart').setDescription('(Staff) Full server activity & engagement report'),
   new SlashCommandBuilder().setName('bypassteamlimit').setDescription('(Staff) Let team exceed 10-member cap')
-    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true)),
+    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('changegiveawayprize').setDescription('(Staff) Change prize on an existing giveaway')
     .addStringOption(o => o.setName('prize').setDescription('New prize text').setRequired(true)),
   new SlashCommandBuilder().setName('changemessagetracking').setDescription('(Staff) Manually modify tracked messages')
@@ -152,24 +152,24 @@ const commands = [
   new SlashCommandBuilder().setName('deletetournamentsignups').setDescription('(Staff) Delete tournament sign-up messages'),
   new SlashCommandBuilder().setName('forceadd').setDescription('(Staff) Force-add member to team')
     .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true))
-    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true)),
+    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('forcekick').setDescription('(Staff) Force remove member from team')
     .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true)),
   new SlashCommandBuilder().setName('globalteammessage').setDescription('(Staff) Send a message to every team channel')
     .addStringOption(o => o.setName('message').setDescription('Message content').setRequired(true)),
   new SlashCommandBuilder().setName('premiumteamsettings').setDescription('(Staff) Apply gradient or custom role icon to a team')
-    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true)),
+    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('qotd').setDescription('(Staff) Post a Question of the Day')
     .addStringOption(o => o.setName('question').setDescription('Question text').setRequired(true)),
   new SlashCommandBuilder().setName('randomgiverole').setDescription('(Staff) Give a role to random members')
     .addRoleOption(o => o.setName('role').setDescription('Role to give').setRequired(true))
     .addIntegerOption(o => o.setName('count').setDescription('Number of members').setRequired(true)),
   new SlashCommandBuilder().setName('sendtournament').setDescription('(Staff) Tell teams they are selected for tournament')
-    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true)),
+    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('staffchangesettings').setDescription('(Staff) Change any team settings')
-    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true)),
+    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('staffleaderpromote').setDescription('(Staff) Promote member to leader of specified team')
-    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true))
+    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true))
     .addUserOption(o => o.setName('user').setDescription('New leader user').setRequired(true)),
   new SlashCommandBuilder().setName('startgiveaway').setDescription('(Staff) Start a giveaway')
     .addStringOption(o => o.setName('prize').setDescription('Giveaway prize').setRequired(true)),
@@ -213,6 +213,16 @@ client.on('messageCreate', async (message) => {
 
 // --- 🎛️ INTERACTION ROUTER ---
 client.on('interactionCreate', async (interaction) => {
+  // --- AUTOCOMPLETE SUGGESTIONS HANDLER ---
+  if (interaction.isAutocomplete()) {
+    const focusedValue = interaction.options.getFocused();
+    const teams = await Team.find({ name: { $regex: focusedValue,$options: 'i' } }).limit(25);
+    
+    return interaction.respond(
+      teams.map(team => ({ name: team.name, value: team.name }))
+    );
+  }
+
   if (!interaction.isChatInputCommand() && !interaction.isButton()) return;
 
   // --- BUTTON INTERACTIONS ---
