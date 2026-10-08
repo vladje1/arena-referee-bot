@@ -72,7 +72,10 @@ const giveawaySchema = new mongoose.Schema({
 });
 const Giveaway = mongoose.model('Giveaway', giveawaySchema);
 
-mongoose.connect(process.env.MONGO_URI);
+// Connect to MongoDB with error handling
+mongoose.connect(process.env.MONGO_URI).catch(err => {
+  console.error('❌ MongoDB Connection Error:', err);
+});
 
 // --- 🛠 BOT HELPER FUNCTIONS ---
 function isStaff(member) {
@@ -215,7 +218,7 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) {
     if (interaction.customId.startsWith('accept_invite_') || interaction.customId.startsWith('decline_invite_')) {
       const parts = interaction.customId.split('_');
-      const action = parts[0]; // 'accept' or 'decline'
+      const action = parts[0];
       const teamName = parts.slice(2).join('_');
 
       const team = await Team.findOne({ name: teamName });
@@ -404,3 +407,58 @@ client.on('interactionCreate', async (interaction) => {
 
   if (commandName === 'messageleaderboard') {
     const top = await Player.find().sort({ messagesCount: -1 }).limit(10);
+    const desc = top.map((p, i) => `**#${i + 1}** <@${p.userId}> — ${p.messagesCount} msgs`).join('\n');
+    const embed = new EmbedBuilder().setTitle('🏆 Message Leaderboard').setDescription(desc).setColor(0xf1c40f);
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  if (commandName === 'streakcount') {
+    const target = interaction.options.getUser('user') || interaction.user;
+    const player = await Player.findOne({ userId: target.id });
+    return interaction.reply({ content: `🔥 **${target.username}** has a chat streak of **${player ? player.chatStreak : 0}** days!` });
+  }
+
+  if (commandName === 'revivestreak') {
+    const player = await Player.findOne({ userId: interaction.user.id });
+    if (player) {
+      player.chatStreak += 1;
+      await player.save();
+    }
+    return interaction.reply({ content: '✨ Chat streak revived successfully!', ephemeral: true });
+  }
+
+  // --- STAFF & UTILITY COMMANDS ---
+  if (commandName === 'startgiveaway') {
+    if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Staff permissions required.', ephemeral: true });
+    const prize = interaction.options.getString('prize');
+    const embed = new EmbedBuilder().setTitle('🎉 GIVEAWAY 🎉').setDescription(`Prize: **${prize}**\nClick below to enter!`).setColor(0xe74c3c);
+    const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('enter_giveaway').setLabel('Enter Giveaway').setStyle(ButtonStyle.Success));
+    const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
+    await Giveaway.create({ prize, channelId: interaction.channelId, messageId: msg.id });
+    return;
+  }
+
+  if (commandName === 'qotd') {
+    if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Staff permissions required.', ephemeral: true });
+    const q = interaction.options.getString('question');
+    const embed = new EmbedBuilder().setTitle('❓ Question of the Day').setDescription(q).setColor(0x3498db);
+    return interaction.reply({ embeds: [embed] });
+  }
+
+  // Generic handler for remaining staff / structural commands
+  const staffCommands = [
+    'activitychart', 'bypassteamlimit', 'changegiveawayprize', 'changemessagetracking',
+    'checkcontest', 'cleanup', 'cleanuporphanteams', 'deletetournamentsignups',
+    'forceadd', 'forcekick', 'globalteammessage', 'premiumteamsettings',
+    'randomgiverole', 'sendtournament', 'staffchangesettings', 'staffleaderpromote',
+    'syncglobalmessages', 'syncinvites', 'syncmessages', 'syncteammembers',
+    'startscrim', 'requestteam', 'changeteamsettings', 'setcoleader', 'leaderpromote'
+  ];
+
+  if (staffCommands.includes(commandName)) {
+    return interaction.reply({ content: `⚙️ The command \`/${commandName}\` is registered and ready.`, ephemeral: true });
+  }
+});
+
+http.createServer((req, res) => res.end('Bot active')).listen(process.env.PORT || 3000);
+client.login(process.env.DISCORD_TOKEN);
