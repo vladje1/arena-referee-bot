@@ -2,9 +2,6 @@ require('dotenv').config();
 const { 
   Client, 
   GatewayIntentBits, 
-  ActionRowBuilder, 
-  ButtonBuilder, 
-  ButtonStyle, 
   EmbedBuilder,
   SlashCommandBuilder,
   REST,
@@ -23,7 +20,6 @@ const client = new Client({
 });
 
 // --- ⚙ CONFIGURATION ---
-const QUEUE_CHANNEL_ID = 'YOUR_QUEUE_CHANNEL_ID'; 
 const STAFF_ROLE_ID = '1553324535128916070';            
 const EXTRA_STAFF_ROLE_ID = '1553324535128916070';     
 
@@ -48,14 +44,7 @@ const Player = mongoose.model('Player', playerSchema);
 
 mongoose.connect(process.env.MONGO_URI);
 
-const active1v1Queue = [];
-const pendingMatches = new Map();
-
 // --- 🛠 BOT HELPER FUNCTIONS ---
-function generateRoomCode() {
-  return 'AC-' + Math.floor(1000 + Math.random() * 9000);
-}
-
 async function checkAndAwardQuests(player, guild, member) {
   let newlyCompleted = [];
 
@@ -111,187 +100,54 @@ client.once('ready', async () => {
 
 // --- 🎛️ INTERACTION HANDLER ---
 client.on('interactionCreate', async (interaction) => {
-  if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === 'quests') {
-      let player = await Player.findOne({ userId: interaction.user.id });
-      if (!player) {
-        player = await Player.create({ userId: interaction.user.id, username: interaction.user.username });
-      }
-      if (interaction.guild) {
-        const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
-        await checkAndAwardQuests(player, interaction.guild, member);
-        await player.save();
-      }
-      const embed = new EmbedBuilder()
-        .setTitle(`📜 Quests & Achievements — ${player.username}`)
-        .setColor(0x9b59b6)
-        .setDescription('Complete milestones through your gameplay!');
-      for (const quest of QUESTS) {
-        const isCompleted = player.completedQuests.includes(quest.id);
-        let progressText = '';
-        if (quest.type === 'total_kills') {
-          progressText = `Progress: ${Math.min(player.kills, quest.goal)}/${quest.goal} Kills`;
-        } else if (quest.type === 'total_deaths') {
-          progressText = `Progress: ${Math.min(player.deaths, quest.goal)}/${quest.goal} Deaths`;
-        }
-        const statusIcon = isCompleted ? '✅ COMPLETED' : `⏳ *In Progress* (${progressText})`;
-        embed.addFields({
-          name: `${quest.title}`,
-          value: `${quest.description}\n${statusIcon}`,
-          inline: false
-        });
-      }
-      return interaction.reply({ embeds: [embed], ephemeral: true });
-    }
+  if (!interaction.isChatInputCommand()) return;
 
-    if (interaction.commandName === 'reset-quests') {
-      if (!isStaff(interaction.member)) {
-        return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
-      }
-      const targetUser = interaction.options.getUser('user');
-      const player = await Player.findOne({ userId: targetUser.id });
-      if (!player) {
-        return interaction.reply({ content: `❌ No player profile found for ${targetUser.tag}.`, ephemeral: true });
-      }
-      player.completedQuests = [];
-      await player.save();
-      return interaction.reply({ content: `✅ Successfully reset all completed quests for <@${targetUser.id}>.`, ephemeral: true });
+  if (interaction.commandName === 'quests') {
+    let player = await Player.findOne({ userId: interaction.user.id });
+    if (!player) {
+      player = await Player.create({ userId: interaction.user.id, username: interaction.user.username });
     }
+    if (interaction.guild) {
+      const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
+      await checkAndAwardQuests(player, interaction.guild, member);
+      await player.save();
+    }
+    const embed = new EmbedBuilder()
+      .setTitle(`📜 Quests & Achievements — ${player.username}`)
+      .setColor(0x9b59b6)
+      .setDescription('Complete milestones through your gameplay!');
+    for (const quest of QUESTS) {
+      const isCompleted = player.completedQuests.includes(quest.id);
+      let progressText = '';
+      if (quest.type === 'total_kills') {
+        progressText = `Progress: ${Math.min(player.kills, quest.goal)}/${quest.goal} Kills`;
+      } else if (quest.type === 'total_deaths') {
+        progressText = `Progress: ${Math.min(player.deaths, quest.goal)}/${quest.goal} Deaths`;
+      }
+      const statusIcon = isCompleted ? '✅ COMPLETED' : `⏳ *In Progress* (${progressText})`;
+      embed.addFields({
+        name: `${quest.title}`,
+        value: `${quest.description}\n${statusIcon}`,
+        inline: false
+      });
+    }
+    return interaction.reply({ embeds: [embed], ephemeral: true });
   }
 
-  if (interaction.isButton()) {
-    if (interaction.customId === 'join_1v1_queue') {
-      if (active1v1Queue.some(p => p.userId === interaction.user.id)) {
-        return interaction.reply({ content: '⚠️ You are already in the queue!', ephemeral: true });
-      }
-      active1v1Queue.push({ userId: interaction.user.id, username: interaction.user.username });
-      await interaction.reply({ content: `✅ Queued for 1v1! (${active1v1Queue.length}/2 players ready)`, ephemeral: true });
-      if (active1v1Queue.length >= 2) {
-        const players = active1v1Queue.splice(0, 2);
-        start1v1Match(players, interaction.guild);
-      }
+  if (interaction.commandName === 'reset-quests') {
+    if (!isStaff(interaction.member)) {
+      return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
     }
-    if (interaction.customId === 'leave_1v1_queue') {
-      const idx = active1v1Queue.findIndex(p => p.userId === interaction.user.id);
-      if (idx !== -1) {
-        active1v1Queue.splice(idx, 1);
-        return interaction.reply({ content: '🏃 Removed from queue.', ephemeral: true });
-      }
-      return interaction.reply({ content: '🏃 You are not in the queue.', ephemeral: true });
+    const targetUser = interaction.options.getUser('user');
+    const player = await Player.findOne({ userId: targetUser.id });
+    if (!player) {
+      return interaction.reply({ content: `❌ No player profile found for ${targetUser.tag}.`, ephemeral: true });
     }
-    if (interaction.customId.startsWith('accept_1v1_')) {
-      const matchId = interaction.customId.replace('accept_1v1_', '');
-      
-      // Immediately acknowledge the interaction to prevent Discord from hanging
-      await interaction.deferUpdate().catch(() => {});
-
-      const match = pendingMatches.get(matchId);
-      if (!match) {
-        return interaction.followUp({ content: '❌ Match session expired or cancelled.', ephemeral: true }).catch(() => {});
-      }
-      
-      if (match.confirmedUsers.has(interaction.user.id)) {
-        return; // Already registered this user's click
-      }
-
-      match.confirmedUsers.add(interaction.user.id);
-
-      // Update the button appearance for this user's DM
-      const disabledBtn = new ButtonBuilder()
-        .setCustomId(`accept_1v1_${matchId}`)
-        .setLabel(match.confirmedUsers.size === 2 ? '✅ Match Starting!' : '✅ Confirmed (Waiting...)')
-        .setStyle(ButtonStyle.Success)
-        .setDisabled(true);
-      const row = new ActionRowBuilder().addComponents(disabledBtn);
-
-      await interaction.editReply({ components: [row] }).catch(() => {});
-
-      if (match.confirmedUsers.size === 2) {
-        clearTimeout(match.timeoutTimer);
-        pendingMatches.delete(matchId);
-        await launch1v1Thread(match);
-      }
-    }
+    player.completedQuests = [];
+    await player.save();
+    return interaction.reply({ content: `✅ Successfully reset all completed quests for <@${targetUser.id}>.`, ephemeral: true });
   }
 });
-
-async function start1v1Match(players, guild) {
-  const matchId = `match_${Date.now()}`;
-  const confirmedUsers = new Set();
-  const confirmBtn = new ButtonBuilder().setCustomId(`accept_1v1_${matchId}`).setLabel('✅ Accept 1v1 (40s)').setStyle(ButtonStyle.Primary);
-  const row = new ActionRowBuilder().addComponents(confirmBtn);
-  
-  for (const p of players) {
-    try {
-      const user = await client.users.fetch(p.userId);
-      await user.send({ content: '⚔️ 1v1 Arena Match Found! Press accept within 40 seconds.', components: [row] });
-    } catch (e) {}
-  }
-  
-  const timeoutTimer = setTimeout(() => {
-    const cur = pendingMatches.get(matchId);
-    if (cur) {
-      pendingMatches.delete(matchId);
-      for (const p of players) {
-        if (!cur.confirmedUsers.has(p.userId)) {
-          // Player failed to accept, you can handle re-queueing here if desired
-        }
-      }
-    }
-  }, 40000);
-  
-  pendingMatches.set(matchId, { matchId, players, confirmedUsers, timeoutTimer, guild });
-}
-
-async function launch1v1Thread(matchData) {
-  const { players, guild } = matchData;
-  try {
-    const channel = await guild.channels.fetch(QUEUE_CHANNEL_ID).catch(() => null);
-    if (!channel) {
-      console.error(`❌ Queue channel ID ${QUEUE_CHANNEL_ID} not found or inaccessible!`);
-      return;
-    }
-    
-    const roomCode = generateRoomCode();
-    const thread = await channel.threads.create({
-      name: `⚔ 1v1 Arena Match - Code ${roomCode}`,
-      autoArchiveDuration: 60
-    });
-    
-    const p1 = players[0];
-    const p2 = players[1];
-    const embed = new EmbedBuilder()
-      .setTitle('🏟️ 1v1 Arena Match Started')
-      .setColor(0x2ecc71)
-      .setDescription(
-        `🔑 **Private Room Code:** \`${roomCode}\`\n\n` +
-        `👤 Player 1: <@${p1.userId}>\n` +
-        `👤 Player 2: <@${p2.userId}>\n\n` +
-        `Instructions:\n` +
-        `1. Join Animal Company using code ${roomCode}.\n` +
-        `2. Play your match!\n\n` +
-        `⏳ This thread will automatically delete in 30 minutes.`
-      );
-      
-    await thread.send({
-      content: `<@${p1.userId}> vs <@${p2.userId}>`,
-      embeds: [embed]
-    });
-
-    setTimeout(async () => {
-      try {
-        if (!thread.deleted) {
-          await thread.delete('Match thread expired after 30 minutes.');
-        }
-      } catch (err) {
-        console.error(`Failed to auto-delete thread ${thread.id}:`, err);
-      }
-    }, 1800000);
-
-  } catch (err) {
-    console.error('❌ Error launching 1v1 thread:', err);
-  }
-}
 
 http.createServer((req, res) => res.end('Bot active')).listen(process.env.PORT || 3000);
 client.login(process.env.DISCORD_TOKEN);
