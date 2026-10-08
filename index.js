@@ -96,9 +96,11 @@ function isStaff(member) {
 
 // --- 🎛️ SLASH COMMANDS ---
 const commands = [
-  new SlashCommandBuilder().setName('create-profile').setDescription('Link Meta Username').addStringOption(opt => opt.setName('meta_username').setDescription('Your exact Meta ID').setRequired(true)),
-  new SlashCommandBuilder().setName('queue-panel').setDescription('Post 1v1 Arena Queue Panel (Staff Only)'),
-  new SlashCommandBuilder().setName('quests').setDescription('View your available and completed quests.')
+  new SlashCommandBuilder().setName('quests').setDescription('View your available and completed quests.'),
+  new SlashCommandBuilder()
+    .setName('reset-quests')
+    .setDescription('Reset a user\'s completed quests (Staff Only)')
+    .addUserOption(opt => opt.setName('user').setDescription('The user to reset').setRequired(true))
 ].map(c => c.toJSON());
 
 client.once('ready', async () => {
@@ -110,30 +112,10 @@ client.once('ready', async () => {
 // --- 🎛️ INTERACTION HANDLER ---
 client.on('interactionCreate', async (interaction) => {
   if (interaction.isChatInputCommand()) {
-    if (interaction.commandName === 'create-profile') {
-      const metaUsername = interaction.options.getString('meta_username');
-      await Player.findOneAndUpdate(
-        { userId: interaction.user.id },
-        { userId: interaction.user.id, username: interaction.user.username, metaUsername: metaUsername },
-        { upsert: true }
-      );
-      return interaction.reply({ content: `✅ Account registered! Meta ID: \`${metaUsername}\``, ephemeral: true });
-    }
-    if (interaction.commandName === 'queue-panel') {
-      if (!isStaff(interaction.member)) return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
-      const joinBtn = new ButtonBuilder().setCustomId('join_1v1_queue').setLabel('⚔️ Join 1v1 Queue').setStyle(ButtonStyle.Success);
-      const leaveBtn = new ButtonBuilder().setCustomId('leave_1v1_queue').setLabel('❌ Leave Queue').setStyle(ButtonStyle.Danger);
-      const row = new ActionRowBuilder().addComponents(joinBtn, leaveBtn);
-      const embed = new EmbedBuilder()
-        .setTitle('🏆 Animal Company 1v1 Arena Queue')
-        .setColor(0x2b2d31)
-        .setDescription('Click below to queue up for a 1v1 match!\nMake sure you link your Meta ID first via /create-profile.');
-      return interaction.reply({ embeds: [embed], components: [row] });
-    }
     if (interaction.commandName === 'quests') {
       let player = await Player.findOne({ userId: interaction.user.id });
       if (!player) {
-        return interaction.reply({ content: `❌ You need to register a profile first using \`/create-profile\`.`, ephemeral: true });
+        player = await Player.create({ userId: interaction.user.id, username: interaction.user.username });
       }
       if (interaction.guild) {
         const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => null);
@@ -160,6 +142,20 @@ client.on('interactionCreate', async (interaction) => {
         });
       }
       return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
+    if (interaction.commandName === 'reset-quests') {
+      if (!isStaff(interaction.member)) {
+        return interaction.reply({ content: "❌ Staff permissions required.", ephemeral: true });
+      }
+      const targetUser = interaction.options.getUser('user');
+      const player = await Player.findOne({ userId: targetUser.id });
+      if (!player) {
+        return interaction.reply({ content: `❌ No player profile found for ${targetUser.tag}.`, ephemeral: true });
+      }
+      player.completedQuests = [];
+      await player.save();
+      return interaction.reply({ content: `✅ Successfully reset all completed quests for <@${targetUser.id}>.`, ephemeral: true });
     }
   }
 
@@ -197,7 +193,6 @@ client.on('interactionCreate', async (interaction) => {
 
       match.confirmedUsers.add(interaction.user.id);
 
-      // Disable the button and update message so it doesn't get stuck
       const disabledBtn = new ButtonBuilder()
         .setCustomId(`accept_1v1_${matchId}`)
         .setLabel(match.confirmedUsers.size === 2 ? '✅ Match Starting!' : '✅ Confirmed (Waiting...)')
@@ -234,9 +229,7 @@ async function start1v1Match(players, guild) {
     if (cur) {
       pendingMatches.delete(matchId);
       for (const p of players) {
-        if (!cur.confirmedUsers.has(p.userId)) {
-          // Put players back into queue if they didn't accept, or handle timeout
-        } else {
+        if (cur.confirmedUsers.has(p.userId)) {
           active1v1Queue.push(p);
         }
       }
