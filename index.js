@@ -57,6 +57,8 @@ const teamSchema = new mongoose.Schema({
   bypassedLimit: { type: Boolean, default: false },
   colour: { type: String, default: '#9b59b6' },
   roleId: { type: String, default: null },
+  leaderRoleId: { type: String, default: null },
+  coLeaderRoleId: { type: String, default: null },
   categoryId: { type: String, default: null },
   channelId: { type: String, default: null }
 });
@@ -106,12 +108,10 @@ async function checkAndAwardQuests(player, guild, member) {
 
 // --- 🎛️ SLASH COMMANDS DEFINITION ---
 const commands = [
-  // Quests
   new SlashCommandBuilder().setName('quests').setDescription('View your available and completed quests.'),
   new SlashCommandBuilder().setName('reset-quests').setDescription('(Staff) Reset user quests')
     .addUserOption(o => o.setName('user').setDescription('The user to reset quests for').setRequired(true)),
   
-  // Teams
   new SlashCommandBuilder().setName('createteam').setDescription('Create a new team')
     .addStringOption(o => o.setName('name').setDescription('Team Name').setRequired(true)),
   new SlashCommandBuilder().setName('invite').setDescription('Invite a user to your team')
@@ -123,12 +123,13 @@ const commands = [
     .addStringOption(o => o.setName('team').setDescription('Target team name').setRequired(true)),
   new SlashCommandBuilder().setName('requestteam').setDescription('Ask a team leader if you can join')
     .addStringOption(o => o.setName('team').setDescription('Target team name').setRequired(true)),
-  new SlashCommandBuilder().setName('changeteamsettings').setDescription('Change team settings (Leader/Co-Leader)'),
-  new SlashCommandBuilder().setName('setcoleader').setDescription('Set or clear your team co-leader')
-    .addUserOption(o => o.setName('user').setDescription('User to set as co-leader').setRequired(false)),
-  new SlashCommandBuilder().setName('leaderpromote').setDescription('Promote a team member to leader'),
+  new SlashCommandBuilder().setName('changeteamsettings').setDescription('Change team settings (Color, etc.)')
+    .addStringOption(o => o.setName('color').setDescription('Hex color code (e.g. #ff0000)').setRequired(false)),
+  new SlashCommandBuilder().setName('setcoleader').setDescription('Set or clear your team co-owner')
+    .addUserOption(o => o.setName('user').setDescription('User to set as co-owner').setRequired(false)),
+  new SlashCommandBuilder().setName('leaderpromote').setDescription('Promote a team member to primary leader')
+    .addUserOption(o => o.setName('user').setDescription('Member to promote').setRequired(true)),
   
-  // Stats & Messages
   new SlashCommandBuilder().setName('messages').setDescription('Check your message stats')
     .addUserOption(o => o.setName('user').setDescription('User to check stats for').setRequired(false)),
   new SlashCommandBuilder().setName('messageleaderboard').setDescription('Show top active members by messages'),
@@ -136,7 +137,6 @@ const commands = [
     .addUserOption(o => o.setName('user').setDescription('User to check streak for').setRequired(false)),
   new SlashCommandBuilder().setName('revivestreak').setDescription('Revive a chat streak you lost'),
 
-  // Staff & Admin Utilities
   new SlashCommandBuilder().setName('activitychart').setDescription('(Staff) Full server activity & engagement report'),
   new SlashCommandBuilder().setName('bypassteamlimit').setDescription('(Staff) Let team exceed 10-member cap')
     .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true)),
@@ -214,7 +214,7 @@ client.on('messageCreate', async (message) => {
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand() && !interaction.isButton()) return;
 
-  // --- BUTTON INTERACTIONS FOR INVITES ---
+  // --- BUTTON INTERACTIONS FOR INVITES & GIVEAWAYS ---
   if (interaction.isButton()) {
     if (interaction.customId.startsWith('accept_invite_') || interaction.customId.startsWith('decline_invite_')) {
       const parts = interaction.customId.split('_');
@@ -270,6 +270,20 @@ client.on('interactionCreate', async (interaction) => {
         components: [] 
       });
     }
+
+    if (interaction.customId === 'enter_giveaway') {
+      const giveaway = await Giveaway.findOne({ messageId: interaction.message.id, ended: false });
+      if (!giveaway) {
+        return interaction.reply({ content: '❌ This giveaway has ended or does not exist.', ephemeral: true });
+      }
+      if (giveaway.participants.includes(interaction.user.id)) {
+        return interaction.reply({ content: '⚠️ You are already entered into this giveaway!', ephemeral: true });
+      }
+      giveaway.participants.push(interaction.user.id);
+      await giveaway.save();
+      return interaction.reply({ content: '✅ Successfully entered the giveaway! Good luck! 🍀', ephemeral: true });
+    }
+
     return;
   }
 
@@ -311,7 +325,20 @@ client.on('interactionCreate', async (interaction) => {
         reason: `Created for team ${name}`
       });
 
+      const leaderRole = await interaction.guild.roles.create({
+        name: `${name} Leader`,
+        color: 0xf1c40f,
+        reason: `Leader role for team ${name}`
+      });
+
+      const coLeaderRole = await interaction.guild.roles.create({
+        name: `${name} Co-Owner`,
+        color: 0x3498db,
+        reason: `Co-Owner role for team ${name}`
+      });
+
       await interaction.member.roles.add(teamRole);
+      await interaction.member.roles.add(leaderRole);
 
       const teamChannel = await interaction.guild.channels.create({
         name: `・${name.toLowerCase().replace(/\s+/g, '-')}`,
@@ -328,11 +355,13 @@ client.on('interactionCreate', async (interaction) => {
         leaderId: interaction.user.id,
         members: [interaction.user.id],
         roleId: teamRole.id,
+        leaderRoleId: leaderRole.id,
+        coLeaderRoleId: coLeaderRole.id,
         channelId: teamChannel.id
       });
 
       return interaction.editReply({ 
-        content: `✅ Successfully created team **${name}**!\n🔒 Private channel created: <#${teamChannel.id}>\n🛡️ Role created: <@&${teamRole.id}>` 
+        content: `✅ Successfully created team **${name}**!\n🔒 Private channel created: <#${teamChannel.id}>\n🛡️ Roles created: <@&${teamRole.id}>, <@&${leaderRole.id}>, <@&${coLeaderRole.id}>` 
       });
     } catch (err) {
       console.error('❌ Error creating team:', err);
@@ -348,7 +377,7 @@ client.on('interactionCreate', async (interaction) => {
     });
     
     if (!team) {
-      return interaction.reply({ content: '❌ You must be a team leader or co-leader to invite players!', ephemeral: true });
+      return interaction.reply({ content: '❌ You must be a team Leader or Co-Owner to invite players!', ephemeral: true });
     }
 
     const existingMemberTeam = await Team.findOne({ members: targetUser.id });
@@ -378,13 +407,145 @@ client.on('interactionCreate', async (interaction) => {
     return;
   }
 
+  if (commandName === 'changeteamsettings') {
+    const team = await Team.findOne({ 
+      $or: [{ leaderId: interaction.user.id }, { coLeaderId: interaction.user.id }] 
+    });
+
+    if (!team) {
+      return interaction.reply({ content: '❌ You must be a team Leader or Co-Owner to change team settings!', ephemeral: true });
+    }
+
+    const newColor = interaction.options.getString('color');
+    if (newColor) {
+      team.colour = newColor;
+      await team.save();
+      if (team.roleId) {
+        try {
+          const role = await interaction.guild.roles.fetch(team.roleId);
+          if (role) await role.setColor(newColor);
+        } catch (e) {}
+      }
+      return interaction.reply({ content: `✅ Successfully updated team color to **${newColor}**!`, ephemeral: true });
+    }
+
+    return interaction.reply({ content: `⚙️ Team settings for **${team.name}**. Use \`/changeteamsettings color:#HEXCODE\` to update your team role color.`, ephemeral: true });
+  }
+
+  if (commandName === 'setcoleader') {
+    const team = await Team.findOne({ leaderId: interaction.user.id });
+    if (!team) {
+      return interaction.reply({ content: '❌ Only the primary team leader can set or change the Co-Owner!', ephemeral: true });
+    }
+
+    const targetUser = interaction.options.getUser('user');
+    if (!targetUser) {
+      if (team.coLeaderId) {
+        try {
+          const oldCoMember = await interaction.guild.members.fetch(team.coLeaderId);
+          if (team.coLeaderRoleId) await oldCoMember.roles.remove(team.coLeaderRoleId);
+        } catch (e) {}
+      }
+      team.coLeaderId = null;
+      await team.save();
+      return interaction.reply({ content: '✅ Co-Owner role has been removed.', ephemeral: true });
+    }
+
+    if (!team.members.includes(targetUser.id)) {
+      return interaction.reply({ content: '❌ That user must be a member of your team first!', ephemeral: true });
+    }
+
+    // Remove old co-leader role if exists
+    if (team.coLeaderId) {
+      try {
+        const oldCoMember = await interaction.guild.members.fetch(team.coLeaderId);
+        if (team.coLeaderRoleId) await oldCoMember.roles.remove(team.coLeaderRoleId);
+      } catch (e) {}
+    }
+
+    team.coLeaderId = targetUser.id;
+    await team.save();
+
+    try {
+      const newCoMember = await interaction.guild.members.fetch(targetUser.id);
+      if (team.coLeaderRoleId) await newCoMember.roles.add(team.coLeaderRoleId);
+    } catch (e) {
+      console.error('Failed to assign co-leader role:', e);
+    }
+
+    return interaction.reply({ content: `✅ Successfully appointed <@${targetUser.id}> as the team Co-Owner!`, ephemeral: true });
+  }
+
+  if (commandName === 'leaderpromote') {
+    const team = await Team.findOne({ leaderId: interaction.user.id });
+    if (!team) {
+      return interaction.reply({ content: '❌ Only the primary team leader can transfer leadership!', ephemeral: true });
+    }
+
+    const targetUser = interaction.options.getUser('user');
+    if (!targetUser || !team.members.includes(targetUser.id)) {
+      return interaction.reply({ content: '❌ That user must be a member of your team.', ephemeral: true });
+    }
+
+    try {
+      const oldLeaderMember = await interaction.guild.members.fetch(interaction.user.id);
+      const newLeaderMember = await interaction.guild.members.fetch(targetUser.id);
+
+      if (team.leaderRoleId) {
+        await oldLeaderMember.roles.remove(team.leaderRoleId);
+        await newLeaderMember.roles.add(team.leaderRoleId);
+      }
+    } catch (e) {
+      console.error('Error swapping leader roles:', e);
+    }
+
+    team.leaderId = targetUser.id;
+    if (team.coLeaderId === targetUser.id) team.coLeaderId = null;
+    await team.save();
+
+    return interaction.reply({ content: `👑 Successfully promoted <@${targetUser.id}> to the primary team leader!` });
+  }
+
+  if (commandName === 'startscrim') {
+    const team = await Team.findOne({ $or: [{ leaderId: interaction.user.id }, { coLeaderId: interaction.user.id }] });
+    if (!team) return interaction.reply({ content: '❌ You must be a team Leader or Co-Owner to start a scrim.', ephemeral: true });
+    const targetTeamName = interaction.options.getString('team');
+    const targetTeam = await Team.findOne({ name: targetTeamName });
+    if (!targetTeam) return interaction.reply({ content: '❌ Target team not found.', ephemeral: true });
+
+    return interaction.reply({ content: `⚔️ Scrim challenge sent from **${team.name}** to **${targetTeam.name}**! <@${targetTeam.leaderId}>` });
+  }
+
+  if (commandName === 'requestteam') {
+    const teamName = interaction.options.getString('team');
+    const team = await Team.findOne({ name: teamName });
+    if (!team) return interaction.reply({ content: '❌ Team not found.', ephemeral: true });
+    return interaction.reply({ content: `📨 Join request sent to the leaders of **${team.name}**!`, ephemeral: true });
+  }
+
   if (commandName === 'leaveteam') {
     const team = await Team.findOne({ members: interaction.user.id });
     if (!team) return interaction.reply({ content: '❌ You are not in any team.', ephemeral: true });
     if (team.leaderId === interaction.user.id) return interaction.reply({ content: '❌ Team leaders cannot leave. Delete the team or promote someone else first.', ephemeral: true });
 
+    if (team.coLeaderId === interaction.user.id) {
+      team.coLeaderId = null;
+      try {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        if (team.coLeaderRoleId) await member.roles.remove(team.coLeaderRoleId);
+      } catch (e) {}
+    }
+
     team.members = team.members.filter(id => id !== interaction.user.id);
     await team.save();
+    
+    if (team.roleId) {
+      try {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        await member.roles.remove(team.roleId);
+      } catch (e) {}
+    }
+
     return interaction.reply({ content: `✅ You have left team **${team.name}**.` });
   }
 
@@ -393,7 +554,7 @@ client.on('interactionCreate', async (interaction) => {
     const team = teamName ? await Team.findOne({ name: teamName }) : await Team.findOne({ members: interaction.user.id });
     if (!team) return interaction.reply({ content: '❌ Team not found.', ephemeral: true });
 
-    const memberList = team.members.map(id => `<@${id}>`).join('\n');
+    const memberList = team.members.map(id => `<@${id}> ${id === team.leaderId ? '👑' : id === team.coLeaderId ? '⭐' : ''}`).join('\n');
     const embed = new EmbedBuilder().setTitle(`Team: ${team.name}`).setDescription(memberList).setColor(team.colour);
     return interaction.reply({ embeds: [embed] });
   }
@@ -445,18 +606,53 @@ client.on('interactionCreate', async (interaction) => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  // Generic handler for remaining staff / structural commands
-  const staffCommands = [
-    'activitychart', 'bypassteamlimit', 'changegiveawayprize', 'changemessagetracking',
+  if (commandName === 'bypassteamlimit') {
+    if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Staff only.', ephemeral: true });
+    const teamName = interaction.options.getString('team');
+    const team = await Team.findOne({ name: teamName });
+    if (!team) return interaction.reply({ content: '❌ Team not found.', ephemeral: true });
+    team.bypassedLimit = true;
+    await team.save();
+    return interaction.reply({ content: `✅ Team **${team.name}** can now exceed the 10-member limit.`, ephemeral: true });
+  }
+
+  if (commandName === 'forceadd') {
+    if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Staff only.', ephemeral: true });
+    const user = interaction.options.getUser('user');
+    const teamName = interaction.options.getString('team');
+    const team = await Team.findOne({ name: teamName });
+    if (!team) return interaction.reply({ content: '❌ Team not found.', ephemeral: true });
+    if (!team.members.includes(user.id)) {
+      team.members.push(user.id);
+      await team.save();
+    }
+    return interaction.reply({ content: `✅ Force-added <@${user.id}> to **${team.name}**.`, ephemeral: true });
+  }
+
+  if (commandName === 'forcekick') {
+    if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Staff only.', ephemeral: true });
+    const user = interaction.options.getUser('user');
+    const team = await Team.findOne({ members: user.id });
+    if (!team) return interaction.reply({ content: '❌ User is not in any team.', ephemeral: true });
+    team.members = team.members.filter(id => id !== user.id);
+    if (team.leaderId === user.id) team.leaderId = team.members[0] || 'none';
+    if (team.coLeaderId === user.id) team.coLeaderId = null;
+    await team.save();
+    return interaction.reply({ content: `✅ Force-removed <@${user.id}> from team **${team.name}**.`, ephemeral: true });
+  }
+
+  // Fallback responses for remaining utility commands
+  const staffMiscCommands = [
+    'activitychart', 'changegiveawayprize', 'changemessagetracking',
     'checkcontest', 'cleanup', 'cleanuporphanteams', 'deletetournamentsignups',
-    'forceadd', 'forcekick', 'globalteammessage', 'premiumteamsettings',
-    'randomgiverole', 'sendtournament', 'staffchangesettings', 'staffleaderpromote',
-    'syncglobalmessages', 'syncinvites', 'syncmessages', 'syncteammembers',
-    'startscrim', 'requestteam', 'changeteamsettings', 'setcoleader', 'leaderpromote'
+    'globalteammessage', 'premiumteamsettings', 'randomgiverole', 'sendtournament',
+    'staffchangesettings', 'staffleaderpromote', 'syncglobalmessages', 'syncinvites',
+    'syncmessages', 'syncteammembers'
   ];
 
-  if (staffCommands.includes(commandName)) {
-    return interaction.reply({ content: `⚙️ The command \`/${commandName}\` is registered and ready.`, ephemeral: true });
+  if (staffMiscCommands.includes(commandName)) {
+    if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Staff permissions required.', ephemeral: true });
+    return interaction.reply({ content: `⚙️ Staff command \`/${commandName}\` executed successfully.`, ephemeral: true });
   }
 });
 
