@@ -108,26 +108,27 @@ async function checkAndAwardQuests(player, guild, member) {
 
 // --- 🎛️ SLASH COMMANDS DEFINITION ---
 const commands = [
+  new SlashCommandBuilder().setName('help').setDescription('Show a list of all commands and what they do.'),
   new SlashCommandBuilder().setName('quests').setDescription('View your available and completed quests.'),
   new SlashCommandBuilder().setName('reset-quests').setDescription('(Staff) Reset user quests')
     .addUserOption(o => o.setName('user').setDescription('The user to reset quests for').setRequired(true)),
   
   new SlashCommandBuilder().setName('createteam').setDescription('Create a new team')
     .addStringOption(o => o.setName('name').setDescription('Team Name').setRequired(true)),
-  new SlashCommandBuilder().setName('invite').setDescription('Invite a user to your team')
+  new SlashCommandBuilder().setName('invite').setDescription('Invite a user to your team (Leaders/Co-Owners)')
     .addUserOption(o => o.setName('user').setDescription('The user to invite').setRequired(true)),
   new SlashCommandBuilder().setName('leaveteam').setDescription('Leave your current team'),
   new SlashCommandBuilder().setName('teammembers').setDescription('List a team\'s members')
     .addStringOption(o => o.setName('team').setDescription('Team name (leave blank for your own)').setRequired(false)),
-  new SlashCommandBuilder().setName('startscrim').setDescription('Challenge another team leader to a scrim')
+  new SlashCommandBuilder().setName('startscrim').setDescription('Challenge another team leader to a scrim (Leaders/Co-Owners)')
     .addStringOption(o => o.setName('team').setDescription('Target team name').setRequired(true)),
   new SlashCommandBuilder().setName('requestteam').setDescription('Ask a team leader if you can join')
     .addStringOption(o => o.setName('team').setDescription('Target team name').setRequired(true)),
-  new SlashCommandBuilder().setName('changeteamsettings').setDescription('Change team settings (Color, etc.)')
+  new SlashCommandBuilder().setName('changeteamsettings').setDescription('Change team settings (Leaders/Co-Owners)')
     .addStringOption(o => o.setName('color').setDescription('Hex color code (e.g. #ff0000)').setRequired(false)),
-  new SlashCommandBuilder().setName('setcoleader').setDescription('Set or clear your team co-owner')
+  new SlashCommandBuilder().setName('setcoleader').setDescription('Set or clear your team co-owner (Primary Leader)')
     .addUserOption(o => o.setName('user').setDescription('User to set as co-owner').setRequired(false)),
-  new SlashCommandBuilder().setName('leaderpromote').setDescription('Promote a team member to primary leader')
+  new SlashCommandBuilder().setName('leaderpromote').setDescription('Promote a team member to primary leader (Primary Leader)')
     .addUserOption(o => o.setName('user').setDescription('Member to promote').setRequired(true)),
   
   new SlashCommandBuilder().setName('messages').setDescription('Check your message stats')
@@ -227,7 +228,7 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       if (action === 'decline') {
-        return interaction.update({ content: `❌ <@${interaction.user.id}> declined the invitation to **${team.name}**.`, embeds: [], components: [] });
+        return interaction.update({ content: `❌ You declined the invitation to **${team.name}**.`, embeds: [], components: [] });
       }
 
       const alreadyInTeam = await Team.findOne({ members: interaction.user.id });
@@ -265,7 +266,7 @@ client.on('interactionCreate', async (interaction) => {
       }
 
       return interaction.update({ 
-        content: `✅ **Success!** <@${interaction.user.id}> has joined team **${team.name}**! 🎉`, 
+        content: `✅ **Success!** You have joined team **${team.name}**! 🎉`, 
         embeds: [], 
         components: [] 
       });
@@ -288,6 +289,52 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   const { commandName } = interaction;
+
+  // --- HELP COMMAND ---
+  if (commandName === 'help') {
+    const helpEmbed = new EmbedBuilder()
+      .setTitle('📖 Arena Hub Bot — Command Directory')
+      .setDescription('Here is a complete list of commands available and what they do:')
+      .setColor(0x9b59b6)
+      .addFields(
+        { 
+          name: '🛡️ Team Commands', 
+          value: 
+            '`/createteam [name]` — Create a new team, private channel, and leader/co-owner roles.\n' +
+            '`/invite [user]` — Send a DM invitation to join your team *(Leaders & Co-Owners only)*.\n' +
+            '`/changeteamsettings [color]` — Change your team color/settings *(Leaders & Co-Owners only)*.\n' +
+            '`/setcoleader [user]` — Appoint or clear a team Co-Owner *(Primary Leader only)*.\n' +
+            '`/leaderpromote [user]` — Transfer primary team leadership *(Primary Leader only)*.\n' +
+            '`/leaveteam` — Leave your current team.\n' +
+            '`/teammembers [team]` — View list of members in a team.\n' +
+            '`/startscrim [team]` — Challenge another team to a scrim *(Leaders & Co-Owners only)*.\n' +
+            '`/requestteam [team]` — Ask a team leader via DM if you can join.',
+          inline: false 
+        },
+        { 
+          name: '📊 Stats & Progression', 
+          value: 
+            '`/quests` — Check your quest progress and completion status.\n' +
+            '`/messages [user]` — Check total and weekly message counts.\n' +
+            '`/messageleaderboard` — View the top most active members.\n' +
+            '`/streakcount [user]` — Check current chat activity streaks.\n' +
+            '`/revivestreak` — Revive a lost chat streak.',
+          inline: false 
+        },
+        { 
+          name: '⚙️ Staff Commands', 
+          value: 
+            '`/startgiveaway [prize]` — Start a server giveaway.\n' +
+            '`/qotd [question]` — Post a Question of the Day.\n' +
+            '`/forceadd /forcekick /bypassteamlimit` — Team management overrides.\n' +
+            '`/reset-quests` — Reset a user\'s completed quests.',
+          inline: false 
+        }
+      )
+      .setFooter({ text: 'Arena Hub Bot Systems' });
+
+    return interaction.reply({ embeds: [helpEmbed], ephemeral: true });
+  }
 
   // --- QUESTS & PROGRESS ---
   if (commandName === 'quests') {
@@ -400,11 +447,15 @@ client.on('interactionCreate', async (interaction) => {
 
     const inviteEmbed = new EmbedBuilder()
       .setTitle('🛡️ Team Invitation')
-      .setDescription(`<@${interaction.user.id}> has invited <@${targetUser.id}> to join **${team.name}**!\n\nClick a button below to respond.`)
+      .setDescription(`<@${interaction.user.id}> has invited you to join team **${team.name}**!\n\nClick a button below to respond.`)
       .setColor(team.colour);
 
-    await interaction.reply({ content: `<@${targetUser.id}>`, embeds: [inviteEmbed], components: [row] });
-    return;
+    try {
+      await targetUser.send({ embeds: [inviteEmbed], components: [row] });
+      return interaction.reply({ content: `✅ Successfully sent a DM invite to <@${targetUser.id}>!`, ephemeral: true });
+    } catch (e) {
+      return interaction.reply({ content: `❌ Could not send a DM to <@${targetUser.id}>. They might have DMs closed.`, ephemeral: true });
+    }
   }
 
   if (commandName === 'changeteamsettings') {
@@ -455,7 +506,6 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.reply({ content: '❌ That user must be a member of your team first!', ephemeral: true });
     }
 
-    // Remove old co-leader role if exists
     if (team.coLeaderId) {
       try {
         const oldCoMember = await interaction.guild.members.fetch(team.coLeaderId);
@@ -520,7 +570,26 @@ client.on('interactionCreate', async (interaction) => {
     const teamName = interaction.options.getString('team');
     const team = await Team.findOne({ name: teamName });
     if (!team) return interaction.reply({ content: '❌ Team not found.', ephemeral: true });
-    return interaction.reply({ content: `📨 Join request sent to the leaders of **${team.name}**!`, ephemeral: true });
+
+    const requestEmbed = new EmbedBuilder()
+      .setTitle('📨 Team Join Request')
+      .setDescription(`<@${interaction.user.id}> has requested to join your team **${team.name}**!`)
+      .setColor(team.colour);
+
+    try {
+      if (team.leaderId) {
+        const leaderUser = await client.users.fetch(team.leaderId);
+        await leaderUser.send({ embeds: [requestEmbed] });
+      }
+      if (team.coLeaderId) {
+        const coLeaderUser = await client.users.fetch(team.coLeaderId);
+        await coLeaderUser.send({ embeds: [requestEmbed] });
+      }
+    } catch (e) {
+      console.error('Failed to DM team leaders about join request:', e);
+    }
+
+    return interaction.reply({ content: `📨 Join request sent via DM to the leaders of **${team.name}**!`, ephemeral: true });
   }
 
   if (commandName === 'leaveteam') {
