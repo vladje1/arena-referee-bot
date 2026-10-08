@@ -23,7 +23,7 @@ const client = new Client({
 });
 
 // --- ⚙ CONFIGURATION ---
-const STAFF_ROLE_ID = '1555612897349210242';            
+const STAFF_ROLE_ID = '1553324535128916070';            
 const EXTRA_STAFF_ROLE_ID = '1553324535128916070';     
 
 // --- 📜 QUEST DEFINITIONS ---
@@ -105,44 +105,70 @@ async function checkAndAwardQuests(player, guild, member) {
 const commands = [
   // Quests
   new SlashCommandBuilder().setName('quests').setDescription('View your available and completed quests.'),
-  new SlashCommandBuilder().setName('reset-quests').setDescription('(Staff) Reset user quests').addUserOption(o => o.setName('user').setRequired(true)),
+  new SlashCommandBuilder().setName('reset-quests').setDescription('(Staff) Reset user quests')
+    .addUserOption(o => o.setName('user').setDescription('The user to reset quests for').setRequired(true)),
   
   // Teams
-  new SlashCommandBuilder().setName('createteam').setDescription('Create a new team').addStringOption(o => o.setName('name').setDescription('Team Name').setRequired(true)),
-  new SlashCommandBuilder().setName('invite').setDescription('Invite a user to your team').addUserOption(o => o.setName('user').setRequired(true)),
+  new SlashCommandBuilder().setName('createteam').setDescription('Create a new team')
+    .addStringOption(o => o.setName('name').setDescription('Team Name').setRequired(true)),
+  new SlashCommandBuilder().setName('invite').setDescription('Invite a user to your team')
+    .addUserOption(o => o.setName('user').setDescription('The user to invite').setRequired(true)),
   new SlashCommandBuilder().setName('leaveteam').setDescription('Leave your current team'),
-  new SlashCommandBuilder().setName('teammembers').setDescription('List a team\'s members').addStringOption(o => o.setName('team').setDescription('Team name')),
-  new SlashCommandBuilder().setName('startscrim').setDescription('Challenge another team leader to a scrim').addStringOption(o => o.setName('team').setRequired(true)),
-  new SlashCommandBuilder().setName('requestteam').setDescription('Ask a team leader if you can join').addStringOption(o => o.setName('team').setRequired(true)),
+  new SlashCommandBuilder().setName('teammembers').setDescription('List a team\'s members')
+    .addStringOption(o => o.setName('team').setDescription('Team name (leave blank for your own)').setRequired(false)),
+  new SlashCommandBuilder().setName('startscrim').setDescription('Challenge another team leader to a scrim')
+    .addStringOption(o => o.setName('team').setDescription('Target team name').setRequired(true)),
+  new SlashCommandBuilder().setName('requestteam').setDescription('Ask a team leader if you can join')
+    .addStringOption(o => o.setName('team').setDescription('Target team name').setRequired(true)),
   new SlashCommandBuilder().setName('changeteamsettings').setDescription('Change team settings (Leader/Co-Leader)'),
-  new SlashCommandBuilder().setName('setcoleader').setDescription('Set or clear your team co-leader').addUserOption(o => o.setName('user')),
+  new SlashCommandBuilder().setName('setcoleader').setDescription('Set or clear your team co-leader')
+    .addUserOption(o => o.setName('user').setDescription('User to set as co-leader').setRequired(false)),
   new SlashCommandBuilder().setName('leaderpromote').setDescription('Promote a team member to leader'),
   
   // Stats & Messages
-  new SlashCommandBuilder().setName('messages').setDescription('Check your message stats').addUserOption(o => o.setName('user')),
+  new SlashCommandBuilder().setName('messages').setDescription('Check your message stats')
+    .addUserOption(o => o.setName('user').setDescription('User to check stats for').setRequired(false)),
   new SlashCommandBuilder().setName('messageleaderboard').setDescription('Show top active members by messages'),
-  new SlashCommandBuilder().setName('streakcount').setDescription('Show chat streak').addUserOption(o => o.setName('user')),
+  new SlashCommandBuilder().setName('streakcount').setDescription('Show chat streak')
+    .addUserOption(o => o.setName('user').setDescription('User to check streak for').setRequired(false)),
   new SlashCommandBuilder().setName('revivestreak').setDescription('Revive a chat streak you lost'),
 
   // Staff & Admin Utilities
   new SlashCommandBuilder().setName('activitychart').setDescription('(Staff) Full server activity & engagement report'),
-  new SlashCommandBuilder().setName('bypassteamlimit').setDescription('(Staff) Let team exceed 10-member cap').addStringOption(o => o.setName('team').setRequired(true)),
-  new SlashCommandBuilder().setName('changegiveawayprize').setDescription('(Staff) Change prize on an existing giveaway').addStringOption(o => o.setName('prize').setRequired(true)),
-  new SlashCommandBuilder().setName('changemessagetracking').setDescription('(Staff) Manually modify tracked messages').addUserOption(o => o.setName('user').setRequired(true)).addIntegerOption(o => o.setName('amount').setRequired(true)),
+  new SlashCommandBuilder().setName('bypassteamlimit').setDescription('(Staff) Let team exceed 10-member cap')
+    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true)),
+  new SlashCommandBuilder().setName('changegiveawayprize').setDescription('(Staff) Change prize on an existing giveaway')
+    .addStringOption(o => o.setName('prize').setDescription('New prize text').setRequired(true)),
+  new SlashCommandBuilder().setName('changemessagetracking').setDescription('(Staff) Manually modify tracked messages')
+    .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true))
+    .addIntegerOption(o => o.setName('amount').setDescription('Message amount offset').setRequired(true)),
   new SlashCommandBuilder().setName('checkcontest').setDescription('(Staff) Show top 10 most-voted contest entries'),
   new SlashCommandBuilder().setName('cleanup').setDescription('(Staff) Delete teams with only a leader'),
   new SlashCommandBuilder().setName('cleanuporphanteams').setDescription('(Staff) Delete orphan channels/roles'),
   new SlashCommandBuilder().setName('deletetournamentsignups').setDescription('(Staff) Delete tournament sign-up messages'),
-  new SlashCommandBuilder().setName('forceadd').setDescription('(Staff) Force-add member to team').addUserOption(o => o.setName('user').setRequired(true)).addStringOption(o => o.setName('team').setRequired(true)),
-  new SlashCommandBuilder().setName('forcekick').setDescription('(Staff) Force remove member from team').addUserOption(o => o.setName('user').setRequired(true)),
-  new SlashCommandBuilder().setName('globalteammessage').setDescription('(Staff) Send a message to every team channel').addStringOption(o => o.setName('message').setRequired(true)),
-  new SlashCommandBuilder().setName('premiumteamsettings').setDescription('(Staff) Apply gradient or custom role icon to a team').addStringOption(o => o.setName('team').setRequired(true)),
-  new SlashCommandBuilder().setName('qotd').setDescription('(Staff) Post a Question of the Day').addStringOption(o => o.setName('question').setRequired(true)),
-  new SlashCommandBuilder().setName('randomgiverole').setDescription('(Staff) Give a role to random members').addRoleOption(o => o.setName('role').setRequired(true)).addIntegerOption(o => o.setName('count').setRequired(true)),
-  new SlashCommandBuilder().setName('sendtournament').setDescription('(Staff) Tell teams they are selected for tournament').addStringOption(o => o.setName('team').setRequired(true)),
-  new SlashCommandBuilder().setName('staffchangesettings').setDescription('(Staff) Change any team settings').addStringOption(o => o.setName('team').setRequired(true)),
-  new SlashCommandBuilder().setName('staffleaderpromote').setDescription('(Staff) Promote member to leader of specified team').addStringOption(o => o.setName('team').setRequired(true)).addUserOption(o => o.setName('user').setRequired(true)),
-  new SlashCommandBuilder().setName('startgiveaway').setDescription('(Staff) Start a giveaway').addStringOption(o => o.setName('prize').setRequired(true)),
+  new SlashCommandBuilder().setName('forceadd').setDescription('(Staff) Force-add member to team')
+    .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true))
+    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true)),
+  new SlashCommandBuilder().setName('forcekick').setDescription('(Staff) Force remove member from team')
+    .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true)),
+  new SlashCommandBuilder().setName('globalteammessage').setDescription('(Staff) Send a message to every team channel')
+    .addStringOption(o => o.setName('message').setDescription('Message content').setRequired(true)),
+  new SlashCommandBuilder().setName('premiumteamsettings').setDescription('(Staff) Apply gradient or custom role icon to a team')
+    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true)),
+  new SlashCommandBuilder().setName('qotd').setDescription('(Staff) Post a Question of the Day')
+    .addStringOption(o => o.setName('question').setDescription('Question text').setRequired(true)),
+  new SlashCommandBuilder().setName('randomgiverole').setDescription('(Staff) Give a role to random members')
+    .addRoleOption(o => o.setName('role').setDescription('Role to give').setRequired(true))
+    .addIntegerOption(o => o.setName('count').setDescription('Number of members').setRequired(true)),
+  new SlashCommandBuilder().setName('sendtournament').setDescription('(Staff) Tell teams they are selected for tournament')
+    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true)),
+  new SlashCommandBuilder().setName('staffchangesettings').setDescription('(Staff) Change any team settings')
+    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true)),
+  new SlashCommandBuilder().setName('staffleaderpromote').setDescription('(Staff) Promote member to leader of specified team')
+    .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true))
+    .addUserOption(o => o.setName('user').setDescription('New leader user').setRequired(true)),
+  new SlashCommandBuilder().setName('startgiveaway').setDescription('(Staff) Start a giveaway')
+    .addStringOption(o => o.setName('prize').setDescription('Giveaway prize').setRequired(true)),
   new SlashCommandBuilder().setName('syncglobalmessages').setDescription('(Staff) Rebuild all-time message counts'),
   new SlashCommandBuilder().setName('syncinvites').setDescription('(Staff) Rebuild invite database'),
   new SlashCommandBuilder().setName('syncmessages').setDescription('(Staff) Rebuild weekly message counts'),
@@ -318,7 +344,7 @@ client.on('interactionCreate', async (interaction) => {
     return interaction.reply({ embeds: [embed] });
   }
 
-  // Generic handler for remaining structural staff commands placeholder responses
+  // Generic handler for remaining structural staff commands
   const staffCommands = [
     'activitychart', 'bypassteamlimit', 'changegiveawayprize', 'changemessagetracking',
     'checkcontest', 'cleanup', 'cleanuporphanteams', 'deletetournamentsignups',
@@ -329,7 +355,7 @@ client.on('interactionCreate', async (interaction) => {
   ];
 
   if (staffCommands.includes(commandName)) {
-    return interaction.reply({ content: `⚙️ The command \`/${commandName}\` is registered and ready. Let me know what specific database updates or features you want tied into it!`, ephemeral: true });
+    return interaction.reply({ content: `⚙️ The command \`/${commandName}\` is registered and ready.`, ephemeral: true });
   }
 });
 
