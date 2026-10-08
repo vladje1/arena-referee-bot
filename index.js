@@ -111,12 +111,12 @@ const commands = [
   new SlashCommandBuilder().setName('help').setDescription('Show a complete directory of all commands and what they do.'),
   new SlashCommandBuilder().setName('quests').setDescription('View your available and completed quests.'),
   new SlashCommandBuilder().setName('reset-quests').setDescription('(Staff) Reset user quests')
-    .addUserOption(o => o.setName('user').setDescription('The user to reset quests for').setRequired(true)),
+    .addUserOption(o => o.setName('user').setDescription('The user to reset quests for').setRequired(true).setAutocomplete(true)),
   
   new SlashCommandBuilder().setName('createteam').setDescription('Create a new team')
     .addStringOption(o => o.setName('name').setDescription('Team Name').setRequired(true)),
   new SlashCommandBuilder().setName('invite').setDescription('Invite a user to your team (Leaders/Co-Owners)')
-    .addUserOption(o => o.setName('user').setDescription('The user to invite').setRequired(true)),
+    .addUserOption(o => o.setName('user').setDescription('The user to invite').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('leaveteam').setDescription('Leave your current team'),
   new SlashCommandBuilder().setName('teammembers').setDescription('List a team\'s members')
     .addStringOption(o => o.setName('team').setDescription('Team name (leave blank for your own)').setRequired(false).setAutocomplete(true)),
@@ -125,36 +125,36 @@ const commands = [
   new SlashCommandBuilder().setName('requestteam').setDescription('Ask a team leader if you can join')
     .addStringOption(o => o.setName('team').setDescription('Target team name').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('changeteamsettings').setDescription('Change team settings (Leaders/Co-Owners)')
-    .addStringOption(o => o.setName('color').setDescription('Hex color code (e.g. #ff0000)').setRequired(false)),
+    .addStringOption(o => o.setName('color').setDescription('Hex color code (e.g. #ff0000)').setRequired(false).setAutocomplete(true)),
   new SlashCommandBuilder().setName('setcoleader').setDescription('Set or clear your team co-owner (Primary Leader)')
-    .addUserOption(o => o.setName('user').setDescription('User to set as co-owner').setRequired(false)),
+    .addUserOption(o => o.setName('user').setDescription('User to set as co-owner').setRequired(false).setAutocomplete(true)),
   new SlashCommandBuilder().setName('leaderpromote').setDescription('Promote a team member to primary leader (Primary Leader)')
-    .addUserOption(o => o.setName('user').setDescription('Member to promote').setRequired(true)),
+    .addUserOption(o => o.setName('user').setDescription('Member to promote').setRequired(true).setAutocomplete(true)),
   
   new SlashCommandBuilder().setName('messages').setDescription('Check your message stats')
-    .addUserOption(o => o.setName('user').setDescription('User to check stats for').setRequired(false)),
+    .addUserOption(o => o.setName('user').setDescription('User to check stats for').setRequired(false).setAutocomplete(true)),
   new SlashCommandBuilder().setName('messageleaderboard').setDescription('Show top active members by messages'),
   new SlashCommandBuilder().setName('streakcount').setDescription('Show chat streak')
-    .addUserOption(o => o.setName('user').setDescription('User to check streak for').setRequired(false)),
+    .addUserOption(o => o.setName('user').setDescription('User to check streak for').setRequired(false).setAutocomplete(true)),
   new SlashCommandBuilder().setName('revivestreak').setDescription('Revive a chat streak you lost'),
 
   new SlashCommandBuilder().setName('activitychart').setDescription('(Staff) Full server activity & engagement report'),
   new SlashCommandBuilder().setName('bypassteamlimit').setDescription('(Staff) Let team exceed 10-member cap')
     .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('changegiveawayprize').setDescription('(Staff) Change prize on an existing giveaway')
-    .addStringOption(o => o.setName('prize').setDescription('New prize text').setRequired(true)),
+    .addStringOption(o => o.setName('prize').setDescription('New prize text').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('changemessagetracking').setDescription('(Staff) Manually modify tracked messages')
-    .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true))
+    .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true).setAutocomplete(true))
     .addIntegerOption(o => o.setName('amount').setDescription('Message amount offset').setRequired(true)),
   new SlashCommandBuilder().setName('checkcontest').setDescription('(Staff) Show top 10 most-voted contest entries'),
   new SlashCommandBuilder().setName('cleanup').setDescription('(Staff) Delete teams with only a leader'),
   new SlashCommandBuilder().setName('cleanuporphanteams').setDescription('(Staff) Delete orphan channels/roles'),
   new SlashCommandBuilder().setName('deletetournamentsignups').setDescription('(Staff) Delete tournament sign-up messages'),
   new SlashCommandBuilder().setName('forceadd').setDescription('(Staff) Force-add member to team')
-    .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true))
+    .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true).setAutocomplete(true))
     .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('forcekick').setDescription('(Staff) Force remove member from team')
-    .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true)),
+    .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('globalteammessage').setDescription('(Staff) Send a message to every team channel')
     .addStringOption(o => o.setName('message').setDescription('Message content').setRequired(true)),
   new SlashCommandBuilder().setName('premiumteamsettings').setDescription('(Staff) Apply gradient or custom role icon to a team')
@@ -170,7 +170,7 @@ const commands = [
     .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('staffleaderpromote').setDescription('(Staff) Promote member to leader of specified team')
     .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true))
-    .addUserOption(o => o.setName('user').setDescription('New leader user').setRequired(true)),
+    .addUserOption(o => o.setName('user').setDescription('New leader user').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('startgiveaway').setDescription('(Staff) Start a giveaway')
     .addStringOption(o => o.setName('prize').setDescription('Giveaway prize').setRequired(true)),
   new SlashCommandBuilder().setName('syncglobalmessages').setDescription('(Staff) Rebuild all-time message counts'),
@@ -213,14 +213,53 @@ client.on('messageCreate', async (message) => {
 
 // --- 🎛️ INTERACTION ROUTER ---
 client.on('interactionCreate', async (interaction) => {
-  // --- AUTOCOMPLETE SUGGESTIONS HANDLER ---
+  // --- UNIVERSAL AUTOCOMPLETE HANDLER ---
   if (interaction.isAutocomplete()) {
-    const focusedValue = interaction.options.getFocused();
-    const teams = await Team.find({ name: { $regex: focusedValue,$options: 'i' } }).limit(25);
-    
-    return interaction.respond(
-      teams.map(team => ({ name: team.name, value: team.name }))
-    );
+    const focusedOption = interaction.options.getFocused(true);
+    const focusedValue = focusedOption.value;
+    const optionName = focusedOption.name;
+
+    // 1. If the option is a team name, search Teams collection
+    if (['team', 'name'].includes(optionName)) {
+      const teams = await Team.find({ name: { $regex: focusedValue,$options: 'i' } }).limit(25);
+      return interaction.respond(teams.map(t => ({ name: t.name, value: t.name })));
+    }
+
+    // 2. If the option is a user, search guild members matching input
+    if (['user'].includes(optionName)) {
+      try {
+        await interaction.guild.members.fetch();
+        const members = interaction.guild.members.cache
+          .filter(m => m.user.username.toLowerCase().includes(focusedValue.toLowerCase()))
+          .first(25);
+        return interaction.respond(members.map(m => ({ name: m.user.username, value: m.user.id })));
+      } catch (e) {
+        return interaction.respond([]);
+      }
+    }
+
+    // 3. If the option is a color preset or code
+    if (['color'].includes(optionName)) {
+      const colors = [
+        { name: 'Purple (#9b59b6)', value: '#9b59b6' },
+        { name: 'Blue (#3498db)', value: '#3498db' },
+        { name: 'Green (#2ecc71)', value: '#2ecc71' },
+        { name: 'Red (#e74c3c)', value: '#e74c3c' },
+        { name: 'Gold (#f1c40f)', value: '#f1c40f' }
+      ].filter(c => c.name.toLowerCase().includes(focusedValue.toLowerCase()));
+      return interaction.respond(colors);
+    }
+
+    // 4. If the option is a giveaway/prize string, look up existing giveaways
+    if (['prize'].includes(optionName)) {
+      const giveaways = await Giveaway.find({ prize: { $regex: focusedValue,$options: 'i' }, ended: false }).limit(25);
+      if (giveaways.length === 0) {
+        return interaction.respond([{ name: focusedValue || 'New Prize', value: focusedValue || 'Default Prize' }]);
+      }
+      return interaction.respond(giveaways.map(g => ({ name: g.prize, value: g.prize })));
+    }
+
+    return interaction.respond([]);
   }
 
   if (!interaction.isChatInputCommand() && !interaction.isButton()) return;
@@ -386,9 +425,9 @@ client.on('interactionCreate', async (interaction) => {
 
   if (commandName === 'reset-quests') {
     if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Staff only.', ephemeral: true });
-    const target = interaction.options.getUser('user');
-    await Player.updateOne({ userId: target.id }, { completedQuests: [] });
-    return interaction.reply({ content: `✅ Reset quests for <@${target.id}>.`, ephemeral: true });
+    const targetId = interaction.options.getString('user') || interaction.options.getUser('user')?.id;
+    await Player.updateOne({ userId: targetId }, { completedQuests: [] });
+    return interaction.reply({ content: `✅ Reset quests for <@${targetId}>.`, ephemeral: true });
   }
 
   // --- TEAM COMMANDS ---
@@ -451,7 +490,8 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   if (commandName === 'invite') {
-    const targetUser = interaction.options.getUser('user');
+    const targetUserId = interaction.options.getString('user') || interaction.options.getUser('user')?.id;
+    const targetUser = await client.users.fetch(targetUserId);
     
     const team = await Team.findOne({ 
       $or: [{ leaderId: interaction.user.id }, { coLeaderId: interaction.user.id }] 
@@ -523,8 +563,8 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.reply({ content: '❌ Only the primary team leader can set or change the Co-Owner!', ephemeral: true });
     }
 
-    const targetUser = interaction.options.getUser('user');
-    if (!targetUser) {
+    const targetUserId = interaction.options.getString('user') || interaction.options.getUser('user')?.id;
+    if (!targetUserId) {
       if (team.coLeaderId) {
         try {
           const oldCoMember = await interaction.guild.members.fetch(team.coLeaderId);
@@ -536,7 +576,7 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.reply({ content: '✅ Co-Owner role has been removed.', ephemeral: true });
     }
 
-    if (!team.members.includes(targetUser.id)) {
+    if (!team.members.includes(targetUserId)) {
       return interaction.reply({ content: '❌ That user must be a member of your team first!', ephemeral: true });
     }
 
@@ -547,17 +587,17 @@ client.on('interactionCreate', async (interaction) => {
       } catch (e) {}
     }
 
-    team.coLeaderId = targetUser.id;
+    team.coLeaderId = targetUserId;
     await team.save();
 
     try {
-      const newCoMember = await interaction.guild.members.fetch(targetUser.id);
+      const newCoMember = await interaction.guild.members.fetch(targetUserId);
       if (team.coLeaderRoleId) await newCoMember.roles.add(team.coLeaderRoleId);
     } catch (e) {
       console.error('Failed to assign co-leader role:', e);
     }
 
-    return interaction.reply({ content: `✅ Successfully appointed <@${targetUser.id}> as the team Co-Owner!`, ephemeral: true });
+    return interaction.reply({ content: `✅ Successfully appointed <@${targetUserId}> as the team Co-Owner!`, ephemeral: true });
   }
 
   if (commandName === 'leaderpromote') {
@@ -566,14 +606,14 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.reply({ content: '❌ Only the primary team leader can transfer leadership!', ephemeral: true });
     }
 
-    const targetUser = interaction.options.getUser('user');
-    if (!targetUser || !team.members.includes(targetUser.id)) {
+    const targetUserId = interaction.options.getString('user') || interaction.options.getUser('user')?.id;
+    if (!targetUserId || !team.members.includes(targetUserId)) {
       return interaction.reply({ content: '❌ That user must be a member of your team.', ephemeral: true });
     }
 
     try {
       const oldLeaderMember = await interaction.guild.members.fetch(interaction.user.id);
-      const newLeaderMember = await interaction.guild.members.fetch(targetUser.id);
+      const newLeaderMember = await interaction.guild.members.fetch(targetUserId);
 
       if (team.leaderRoleId) {
         await oldLeaderMember.roles.remove(team.leaderRoleId);
@@ -583,11 +623,11 @@ client.on('interactionCreate', async (interaction) => {
       console.error('Error swapping leader roles:', e);
     }
 
-    team.leaderId = targetUser.id;
-    if (team.coLeaderId === targetUser.id) team.coLeaderId = null;
+    team.leaderId = targetUserId;
+    if (team.coLeaderId === targetUserId) team.coLeaderId = null;
     await team.save();
 
-    return interaction.reply({ content: `👑 Successfully promoted <@${targetUser.id}> to the primary team leader!` });
+    return interaction.reply({ content: `👑 Successfully promoted <@${targetUserId}> to the primary team leader!` });
   }
 
   if (commandName === 'startscrim') {
@@ -664,9 +704,10 @@ client.on('interactionCreate', async (interaction) => {
 
   // --- STATS & MESSAGES ---
   if (commandName === 'messages') {
-    const target = interaction.options.getUser('user') || interaction.user;
-    const player = await Player.findOne({ userId: target.id });
-    return interaction.reply({ content: `📊 **${target.username}** has sent **${player ? player.messagesCount : 0}** total messages (${player ? player.weeklyMessages : 0} this week).`, ephemeral: true });
+    const targetUserId = interaction.options.getString('user') || interaction.options.getUser('user')?.id || interaction.user.id;
+    const targetUser = await client.users.fetch(targetUserId);
+    const player = await Player.findOne({ userId: targetUser.id });
+    return interaction.reply({ content: `📊 **${targetUser.username}** has sent **${player ? player.messagesCount : 0}** total messages (${player ? player.weeklyMessages : 0} this week).`, ephemeral: true });
   }
 
   if (commandName === 'messageleaderboard') {
@@ -677,9 +718,10 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   if (commandName === 'streakcount') {
-    const target = interaction.options.getUser('user') || interaction.user;
-    const player = await Player.findOne({ userId: target.id });
-    return interaction.reply({ content: `🔥 **${target.username}** has a chat streak of **${player ? player.chatStreak : 0}** days!` });
+    const targetUserId = interaction.options.getString('user') || interaction.options.getUser('user')?.id || interaction.user.id;
+    const targetUser = await client.users.fetch(targetUserId);
+    const player = await Player.findOne({ userId: targetUser.id });
+    return interaction.reply({ content: `🔥 **${targetUser.username}** has a chat streak of **${player ? player.chatStreak : 0}** days!` });
   }
 
   if (commandName === 'revivestreak') {
@@ -747,7 +789,8 @@ client.on('interactionCreate', async (interaction) => {
 
   if (commandName === 'changemessagetracking') {
     if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Staff only.', ephemeral: true });
-    const user = interaction.options.getUser('user');
+    const userId = interaction.options.getString('user') || interaction.options.getUser('user')?.id;
+    const user = await client.users.fetch(userId);
     const amount = interaction.options.getInteger('amount');
     let player = await Player.findOne({ userId: user.id });
     if (!player) player = await Player.create({ userId: user.id, username: user.username });
@@ -780,27 +823,27 @@ client.on('interactionCreate', async (interaction) => {
 
   if (commandName === 'forceadd') {
     if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Staff only.', ephemeral: true });
-    const user = interaction.options.getUser('user');
+    const userId = interaction.options.getString('user') || interaction.options.getUser('user')?.id;
     const teamName = interaction.options.getString('team');
     const team = await Team.findOne({ name: teamName });
     if (!team) return interaction.reply({ content: '❌ Team not found.', ephemeral: true });
-    if (!team.members.includes(user.id)) {
-      team.members.push(user.id);
+    if (!team.members.includes(userId)) {
+      team.members.push(userId);
       await team.save();
     }
-    return interaction.reply({ content: `✅ Force-added <@${user.id}> to **${team.name}**.`, ephemeral: true });
+    return interaction.reply({ content: `✅ Force-added <@${userId}> to **${team.name}**.`, ephemeral: true });
   }
 
   if (commandName === 'forcekick') {
     if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Staff only.', ephemeral: true });
-    const user = interaction.options.getUser('user');
-    const team = await Team.findOne({ members: user.id });
+    const userId = interaction.options.getString('user') || interaction.options.getUser('user')?.id;
+    const team = await Team.findOne({ members: userId });
     if (!team) return interaction.reply({ content: '❌ User is not in any team.', ephemeral: true });
-    team.members = team.members.filter(id => id !== user.id);
-    if (team.leaderId === user.id) team.leaderId = team.members[0] || 'none';
-    if (team.coLeaderId === user.id) team.coLeaderId = null;
+    team.members = team.members.filter(id => id !== userId);
+    if (team.leaderId === userId) team.leaderId = team.members[0] || 'none';
+    if (team.coLeaderId === userId) team.coLeaderId = null;
     await team.save();
-    return interaction.reply({ content: `✅ Force-removed <@${user.id}> from team **${team.name}**.`, ephemeral: true });
+    return interaction.reply({ content: `✅ Force-removed <@${userId}> from team **${team.name}**.`, ephemeral: true });
   }
 
   if (commandName === 'globalteammessage') {
@@ -872,13 +915,13 @@ client.on('interactionCreate', async (interaction) => {
   if (commandName === 'staffleaderpromote') {
     if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Staff only.', ephemeral: true });
     const teamName = interaction.options.getString('team');
-    const user = interaction.options.getUser('user');
+    const userId = interaction.options.getString('user') || interaction.options.getUser('user')?.id;
     const team = await Team.findOne({ name: teamName });
     if (!team) return interaction.reply({ content: '❌ Team not found.', ephemeral: true });
-    team.leaderId = user.id;
-    if (!team.members.includes(user.id)) team.members.push(user.id);
+    team.leaderId = userId;
+    if (!team.members.includes(userId)) team.members.push(userId);
     await team.save();
-    return interaction.reply({ content: `👑 Force-promoted <@${user.id}> to leader of team **${team.name}**.`, ephemeral: true });
+    return interaction.reply({ content: `👑 Force-promoted <@${userId}> to leader of team **${team.name}**.`, ephemeral: true });
   }
 
   if (commandName === 'syncglobalmessages') {
