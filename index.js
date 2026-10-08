@@ -186,9 +186,27 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.customId.startsWith('accept_1v1_')) {
       const matchId = interaction.customId.replace('accept_1v1_', '');
       const match = pendingMatches.get(matchId);
-      if (!match) return interaction.reply({ content: '❌ Match session expired or cancelled.', ephemeral: true });
+      
+      if (!match) {
+        return interaction.reply({ content: '❌ Match session expired or cancelled.', ephemeral: true });
+      }
+      
+      if (match.confirmedUsers.has(interaction.user.id)) {
+        return interaction.reply({ content: '⚠️ You already accepted this match!', ephemeral: true });
+      }
+
       match.confirmedUsers.add(interaction.user.id);
-      await interaction.reply({ content: '✅ Confirmed! Waiting for opponent...' });
+
+      // Disable the button and update message so it doesn't get stuck
+      const disabledBtn = new ButtonBuilder()
+        .setCustomId(`accept_1v1_${matchId}`)
+        .setLabel(match.confirmedUsers.size === 2 ? '✅ Match Starting!' : '✅ Confirmed (Waiting...)')
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(true);
+      const row = new ActionRowBuilder().addComponents(disabledBtn);
+
+      await interaction.update({ components: [row] }).catch(() => {});
+
       if (match.confirmedUsers.size === 2) {
         clearTimeout(match.timeoutTimer);
         pendingMatches.delete(matchId);
@@ -203,21 +221,28 @@ async function start1v1Match(players, guild) {
   const confirmedUsers = new Set();
   const confirmBtn = new ButtonBuilder().setCustomId(`accept_1v1_${matchId}`).setLabel('✅ Accept 1v1 (40s)').setStyle(ButtonStyle.Primary);
   const row = new ActionRowBuilder().addComponents(confirmBtn);
+  
   for (const p of players) {
     try {
       const user = await client.users.fetch(p.userId);
       await user.send({ content: '⚔️ 1v1 Arena Match Found! Press accept within 40 seconds.', components: [row] });
     } catch (e) {}
   }
+  
   const timeoutTimer = setTimeout(() => {
     const cur = pendingMatches.get(matchId);
     if (cur) {
       pendingMatches.delete(matchId);
       for (const p of players) {
-        if (cur.confirmedUsers.has(p.userId)) active1v1Queue.push(p);
+        if (!cur.confirmedUsers.has(p.userId)) {
+          // Put players back into queue if they didn't accept, or handle timeout
+        } else {
+          active1v1Queue.push(p);
+        }
       }
     }
   }, 40000);
+  
   pendingMatches.set(matchId, { matchId, players, confirmedUsers, timeoutTimer, guild });
 }
 
@@ -242,7 +267,7 @@ async function launch1v1Thread(matchData) {
       `Instructions:\n` +
       `1. Join Animal Company using code ${roomCode}.\n` +
       `2. Play your match!\n\n` +
-      `⏳ This thread will automatically delete in 1 hour.`
+      `⏳ This thread will automatically delete in 30 minutes.`
     );
   await thread.send({
     content: `<@${p1.userId}> vs <@${p2.userId}>`,
@@ -251,12 +276,12 @@ async function launch1v1Thread(matchData) {
   setTimeout(async () => {
     try {
       if (!thread.deleted) {
-        await thread.delete('Match thread expired after 1 hour.');
+        await thread.delete('Match thread expired after 30 minutes.');
       }
     } catch (err) {
       console.error(`Failed to auto-delete thread ${thread.id}:`, err);
     }
-  }, 3600000);
+  }, 1800000);
 }
 
 http.createServer((req, res) => res.end('Bot active')).listen(process.env.PORT || 3000);
