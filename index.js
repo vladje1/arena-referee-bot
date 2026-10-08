@@ -209,7 +209,67 @@ client.on('messageCreate', async (message) => {
 
 // --- 🎛️ INTERACTION ROUTER ---
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
+  if (!interaction.isChatInputCommand() && !interaction.isButton()) return;
+
+  // --- BUTTON INTERACTIONS FOR INVITES ---
+  if (interaction.isButton()) {
+    if (interaction.customId.startsWith('accept_invite_') || interaction.customId.startsWith('decline_invite_')) {
+      const parts = interaction.customId.split('_');
+      const action = parts[0]; // 'accept' or 'decline'
+      const teamName = parts.slice(2).join('_');
+
+      const team = await Team.findOne({ name: teamName });
+      if (!team) {
+        return interaction.update({ content: '❌ This team no longer exists.', embeds: [], components: [] });
+      }
+
+      if (action === 'decline') {
+        return interaction.update({ content: `❌ <@${interaction.user.id}> declined the invitation to **${team.name}**.`, embeds: [], components: [] });
+      }
+
+      const alreadyInTeam = await Team.findOne({ members: interaction.user.id });
+      if (alreadyInTeam) {
+        return interaction.update({ content: '❌ You are already in a team!', embeds: [], components: [] });
+      }
+
+      if (!team.bypassedLimit && team.members.length >= 10) {
+        return interaction.update({ content: '❌ This team has reached its member limit.', embeds: [], components: [] });
+      }
+
+      team.members.push(interaction.user.id);
+      await team.save();
+
+      if (team.roleId) {
+        try {
+          const member = await interaction.guild.members.fetch(interaction.user.id);
+          await member.roles.add(team.roleId);
+        } catch (e) {
+          console.error('Failed to assign team role:', e);
+        }
+      }
+
+      if (team.channelId) {
+        try {
+          const channel = await interaction.guild.channels.fetch(team.channelId);
+          await channel.permissionOverwrites.create(interaction.user.id, {
+            ViewChannel: true,
+            SendMessages: true,
+            ReadMessageHistory: true
+          });
+        } catch (e) {
+          console.error('Failed to update channel permissions:', e);
+        }
+      }
+
+      return interaction.update({ 
+        content: `✅ **Success!** <@${interaction.user.id}> has joined team **${team.name}**! 🎉`, 
+        embeds: [], 
+        components: [] 
+      });
+    }
+    return;
+  }
+
   const { commandName } = interaction;
 
   // --- QUESTS & PROGRESS ---
@@ -277,6 +337,44 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
+  if (commandName === 'invite') {
+    const targetUser = interaction.options.getUser('user');
+    
+    const team = await Team.findOne({ 
+      $or: [{ leaderId: interaction.user.id }, { coLeaderId: interaction.user.id }] 
+    });
+    
+    if (!team) {
+      return interaction.reply({ content: '❌ You must be a team leader or co-leader to invite players!', ephemeral: true });
+    }
+
+    const existingMemberTeam = await Team.findOne({ members: targetUser.id });
+    if (existingMemberTeam) {
+      return interaction.reply({ content: `❌ <@${targetUser.id}> is already a member of team **${existingMemberTeam.name}**!`, ephemeral: true });
+    }
+
+    if (!team.bypassedLimit && team.members.length >= 10) {
+      return interaction.reply({ content: '❌ Your team has reached the maximum limit of 10 members!', ephemeral: true });
+    }
+
+    if (targetUser.bot) {
+      return interaction.reply({ content: '❌ You cannot invite bots to a team.', ephemeral: true });
+    }
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`accept_invite_${team.name}`).setLabel('Accept').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`decline_invite_${team.name}`).setLabel('Decline').setStyle(ButtonStyle.Danger)
+    );
+
+    const inviteEmbed = new EmbedBuilder()
+      .setTitle('🛡️ Team Invitation')
+      .setDescription(`<@${interaction.user.id}> has invited <@${targetUser.id}> to join **${team.name}**!\n\nClick a button below to respond.`)
+      .setColor(team.colour);
+
+    await interaction.reply({ content: `<@${targetUser.id}>`, embeds: [inviteEmbed], components: [row] });
+    return;
+  }
+
   if (commandName === 'leaveteam') {
     const team = await Team.findOne({ members: interaction.user.id });
     if (!team) return interaction.reply({ content: '❌ You are not in any team.', ephemeral: true });
@@ -306,58 +404,3 @@ client.on('interactionCreate', async (interaction) => {
 
   if (commandName === 'messageleaderboard') {
     const top = await Player.find().sort({ messagesCount: -1 }).limit(10);
-    const desc = top.map((p, i) => `**#${i + 1}** <@${p.userId}> — ${p.messagesCount} msgs`).join('\n');
-    const embed = new EmbedBuilder().setTitle('🏆 Message Leaderboard').setDescription(desc).setColor(0xf1c40f);
-    return interaction.reply({ embeds: [embed] });
-  }
-
-  if (commandName === 'streakcount') {
-    const target = interaction.options.getUser('user') || interaction.user;
-    const player = await Player.findOne({ userId: target.id });
-    return interaction.reply({ content: `🔥 **${target.username}** has a chat streak of **${player ? player.chatStreak : 0}** days!` });
-  }
-
-  if (commandName === 'revivestreak') {
-    const player = await Player.findOne({ userId: interaction.user.id });
-    if (player) {
-      player.chatStreak += 1;
-      await player.save();
-    }
-    return interaction.reply({ content: '✨ Chat streak revived successfully!', ephemeral: true });
-  }
-
-  // --- STAFF & UTILITY COMMANDS ---
-  if (commandName === 'startgiveaway') {
-    if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Staff permissions required.', ephemeral: true });
-    const prize = interaction.options.getString('prize');
-    const embed = new EmbedBuilder().setTitle('🎉 GIVEAWAY 🎉').setDescription(`Prize: **${prize}**\nClick below to enter!`).setColor(0xe74c3c);
-    const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('enter_giveaway').setLabel('Enter Giveaway').setStyle(ButtonStyle.Success));
-    const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
-    await Giveaway.create({ prize, channelId: interaction.channelId, messageId: msg.id });
-    return;
-  }
-
-  if (commandName === 'qotd') {
-    if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Staff permissions required.', ephemeral: true });
-    const q = interaction.options.getString('question');
-    const embed = new EmbedBuilder().setTitle('❓ Question of the Day').setDescription(q).setColor(0x3498db);
-    return interaction.reply({ embeds: [embed] });
-  }
-
-  // Generic handler for remaining structural staff commands
-  const staffCommands = [
-    'activitychart', 'bypassteamlimit', 'changegiveawayprize', 'changemessagetracking',
-    'checkcontest', 'cleanup', 'cleanuporphanteams', 'deletetournamentsignups',
-    'forceadd', 'forcekick', 'globalteammessage', 'premiumteamsettings',
-    'randomgiverole', 'sendtournament', 'staffchangesettings', 'staffleaderpromote',
-    'syncglobalmessages', 'syncinvites', 'syncmessages', 'syncteammembers',
-    'invite', 'startscrim', 'requestteam', 'changeteamsettings', 'setcoleader', 'leaderpromote'
-  ];
-
-  if (staffCommands.includes(commandName)) {
-    return interaction.reply({ content: `⚙️ The command \`/${commandName}\` is registered and ready.`, ephemeral: true });
-  }
-});
-
-http.createServer((req, res) => res.end('Bot active')).listen(process.env.PORT || 3000);
-client.login(process.env.DISCORD_TOKEN);
