@@ -181,18 +181,22 @@ client.on('interactionCreate', async (interaction) => {
     }
     if (interaction.customId.startsWith('accept_1v1_')) {
       const matchId = interaction.customId.replace('accept_1v1_', '');
-      const match = pendingMatches.get(matchId);
       
+      // Immediately acknowledge the interaction to prevent Discord from hanging
+      await interaction.deferUpdate().catch(() => {});
+
+      const match = pendingMatches.get(matchId);
       if (!match) {
-        return interaction.reply({ content: '❌ Match session expired or cancelled.', ephemeral: true });
+        return interaction.followUp({ content: '❌ Match session expired or cancelled.', ephemeral: true }).catch(() => {});
       }
       
       if (match.confirmedUsers.has(interaction.user.id)) {
-        return interaction.reply({ content: '⚠️ You already accepted this match!', ephemeral: true });
+        return; // Already registered this user's click
       }
 
       match.confirmedUsers.add(interaction.user.id);
 
+      // Update the button appearance for this user's DM
       const disabledBtn = new ButtonBuilder()
         .setCustomId(`accept_1v1_${matchId}`)
         .setLabel(match.confirmedUsers.size === 2 ? '✅ Match Starting!' : '✅ Confirmed (Waiting...)')
@@ -200,12 +204,12 @@ client.on('interactionCreate', async (interaction) => {
         .setDisabled(true);
       const row = new ActionRowBuilder().addComponents(disabledBtn);
 
-      await interaction.update({ components: [row] }).catch(() => {});
+      await interaction.editReply({ components: [row] }).catch(() => {});
 
       if (match.confirmedUsers.size === 2) {
         clearTimeout(match.timeoutTimer);
         pendingMatches.delete(matchId);
-        launch1v1Thread(match);
+        await launch1v1Thread(match);
       }
     }
   }
@@ -229,8 +233,8 @@ async function start1v1Match(players, guild) {
     if (cur) {
       pendingMatches.delete(matchId);
       for (const p of players) {
-        if (cur.confirmedUsers.has(p.userId)) {
-          active1v1Queue.push(p);
+        if (!cur.confirmedUsers.has(p.userId)) {
+          // Player failed to accept, you can handle re-queueing here if desired
         }
       }
     }
@@ -241,40 +245,52 @@ async function start1v1Match(players, guild) {
 
 async function launch1v1Thread(matchData) {
   const { players, guild } = matchData;
-  const channel = await guild.channels.fetch(QUEUE_CHANNEL_ID).catch(() => null);
-  if (!channel) return;
-  const roomCode = generateRoomCode();
-  const thread = await channel.threads.create({
-    name: `⚔ 1v1 Arena Match - Code ${roomCode}`,
-    autoArchiveDuration: 60
-  });
-  const p1 = players[0];
-  const p2 = players[1];
-  const embed = new EmbedBuilder()
-    .setTitle('🏟️ 1v1 Arena Match Started')
-    .setColor(0x2ecc71)
-    .setDescription(
-      `🔑 **Private Room Code:** \`${roomCode}\`\n\n` +
-      `👤 Player 1: <@${p1.userId}>\n` +
-      `👤 Player 2: <@${p2.userId}>\n\n` +
-      `Instructions:\n` +
-      `1. Join Animal Company using code ${roomCode}.\n` +
-      `2. Play your match!\n\n` +
-      `⏳ This thread will automatically delete in 30 minutes.`
-    );
-  await thread.send({
-    content: `<@${p1.userId}> vs <@${p2.userId}>`,
-    embeds: [embed]
-  });
-  setTimeout(async () => {
-    try {
-      if (!thread.deleted) {
-        await thread.delete('Match thread expired after 30 minutes.');
-      }
-    } catch (err) {
-      console.error(`Failed to auto-delete thread ${thread.id}:`, err);
+  try {
+    const channel = await guild.channels.fetch(QUEUE_CHANNEL_ID).catch(() => null);
+    if (!channel) {
+      console.error(`❌ Queue channel ID ${QUEUE_CHANNEL_ID} not found or inaccessible!`);
+      return;
     }
-  }, 1800000);
+    
+    const roomCode = generateRoomCode();
+    const thread = await channel.threads.create({
+      name: `⚔ 1v1 Arena Match - Code ${roomCode}`,
+      autoArchiveDuration: 60
+    });
+    
+    const p1 = players[0];
+    const p2 = players[1];
+    const embed = new EmbedBuilder()
+      .setTitle('🏟️ 1v1 Arena Match Started')
+      .setColor(0x2ecc71)
+      .setDescription(
+        `🔑 **Private Room Code:** \`${roomCode}\`\n\n` +
+        `👤 Player 1: <@${p1.userId}>\n` +
+        `👤 Player 2: <@${p2.userId}>\n\n` +
+        `Instructions:\n` +
+        `1. Join Animal Company using code ${roomCode}.\n` +
+        `2. Play your match!\n\n` +
+        `⏳ This thread will automatically delete in 30 minutes.`
+      );
+      
+    await thread.send({
+      content: `<@${p1.userId}> vs <@${p2.userId}>`,
+      embeds: [embed]
+    });
+
+    setTimeout(async () => {
+      try {
+        if (!thread.deleted) {
+          await thread.delete('Match thread expired after 30 minutes.');
+        }
+      } catch (err) {
+        console.error(`Failed to auto-delete thread ${thread.id}:`, err);
+      }
+    }, 1800000);
+
+  } catch (err) {
+    console.error('❌ Error launching 1v1 thread:', err);
+  }
 }
 
 http.createServer((req, res) => res.end('Bot active')).listen(process.env.PORT || 3000);
