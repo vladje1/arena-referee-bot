@@ -25,7 +25,7 @@ const client = new Client({
 // --- ⚙ CONFIGURATION ---
 const STAFF_ROLE_ID = '1553324535128916070';            
 const EXTRA_STAFF_ROLE_ID = '1553324535128916070';     
-const GUILD_ID = 'YOUR_SERVER_ID_HERE'; // Replace with your actual Server ID
+const GUILD_ID = '1553155002959134831'; // Replace with your actual Server ID
 
 // --- 📜 QUEST DEFINITIONS ---
 const QUESTS = [
