@@ -8,8 +8,7 @@ const {
   Routes,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle,
-  ChannelType
+  ButtonStyle
 } = require('discord.js');
 const mongoose = require('mongoose');
 const http = require('http');
@@ -191,8 +190,11 @@ const commands = [
 client.once('ready', async () => {
   console.log(`✅ Arena Hub Bot Ready as ${client.user.tag}`);
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+  
+  // Clear any old duplicate global commands and register clean guild commands instantly
+  await rest.put(Routes.applicationCommands(client.user.id), { body: [] }).catch(() => {});
   await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), { body: commands })
-    .then(() => console.log('✅ Successfully registered guild commands instantly!'))
+    .then(() => console.log('✅ Successfully registered unique guild commands instantly!'))
     .catch(console.error);
 });
 
@@ -778,7 +780,6 @@ client.on('interactionCreate', async (interaction) => {
       return await interaction.reply({ content: `✨ Premium visual settings applied to team **${team.name}**!`, ephemeral: true });
     }
 
-    // --- UPDATED QOTD COMMAND (AUTO-THREAD CREATION) ---
     if (commandName === 'qotd') {
       if (!isStaff(interaction.member)) return await interaction.reply({ content: '❌ Staff permissions required.', ephemeral: true });
       const questionText = interaction.options.getString('question');
@@ -789,14 +790,12 @@ client.on('interactionCreate', async (interaction) => {
         .setColor(0x3498db)
         .setFooter({ text: `Posted by ${interaction.user.username}` });
 
-      // Reply with the embed first
       const sentMessage = await interaction.reply({ embeds: [qotdEmbed], fetchReply: true });
 
-      // Automatically create a public discussion thread on that message
       try {
         await sentMessage.startThread({
           name: `QOTD Discussion: ${questionText.length > 50 ? questionText.slice(0, 47) + '...' : questionText}`,
-          autoArchiveDuration: 1440, // Automatically archive after 24 hours of inactivity
+          autoArchiveDuration: 1440,
           reason: 'Daily Question discussion thread'
         });
       } catch (e) {
