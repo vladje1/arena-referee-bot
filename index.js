@@ -219,13 +219,11 @@ client.on('interactionCreate', async (interaction) => {
     const focusedValue = focusedOption.value;
     const optionName = focusedOption.name;
 
-    // 1. Team names autocomplete
     if (['team', 'name'].includes(optionName)) {
       const teams = await Team.find({ name: { $regex: focusedValue,$options: 'i' } }).limit(25);
       return interaction.respond(teams.map(t => ({ name: t.name, value: t.name })));
     }
 
-    // 2. Color code presets autocomplete
     if (['color'].includes(optionName)) {
       const colors = [
         { name: 'Purple (#9b59b6)', value: '#9b59b6' },
@@ -237,7 +235,6 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.respond(colors);
     }
 
-    // 3. Giveaway prizes autocomplete
     if (['prize'].includes(optionName)) {
       const giveaways = await Giveaway.find({ prize: { $regex: focusedValue,$options: 'i' }, ended: false }).limit(25);
       if (giveaways.length === 0) {
@@ -344,8 +341,7 @@ client.on('interactionCreate', async (interaction) => {
             '`/requestteam [team]` — Ask a team leader if you can join.\n' +
             '`/changeteamsettings [color]` — Modify team color/settings *(Leaders/Co-Owners)*.\n' +
             '`/setcoleader [user]` — Assign or remove a team Co-Owner *(Primary Leader)*.\n' +
-            '`/leaderpromote [user]` — Transfer primary team leadership *(Primary Leader)*.',
-          inline: false 
+            '`/leaderpromote [user]` — Transfer primary team leadership *(Primary Leader)*.' 
         },
         { 
           name: '📊 Stats & Progression', 
@@ -354,8 +350,7 @@ client.on('interactionCreate', async (interaction) => {
             '`/messages [user]` — Check total and weekly message stats.\n' +
             '`/messageleaderboard` — Show top active members by messages.\n' +
             '`/streakcount [user]` — Check current chat activity streaks.\n' +
-            '`/revivestreak` — Revive a lost chat streak.',
-          inline: false 
+            '`/revivestreak` — Revive a lost chat streak.' 
         },
         { 
           name: '⚙️ Staff Commands (General & Utility)', 
@@ -365,8 +360,7 @@ client.on('interactionCreate', async (interaction) => {
             '`/activitychart` — Generate server activity & engagement report.\n' +
             '`/checkcontest` — Show top 10 most-voted contest entries.\n' +
             '`/randomgiverole [role] [count]` — Give a role to random members.\n' +
-            '`/reset-quests [user]` — Reset a specific user\'s completed quests.',
-          inline: false 
+            '`/reset-quests [user]` — Reset a specific user\'s completed quests.' 
         },
         { 
           name: '🛠️ Staff Commands (Management & Sync)', 
@@ -387,8 +381,7 @@ client.on('interactionCreate', async (interaction) => {
             '`/syncglobalmessages` — Rebuild all-time message counts from history.\n' +
             '`/syncinvites` — Rebuild the invite tracking database.\n' +
             '`/syncmessages` — Rebuild weekly message counts.\n' +
-            '`/syncteammembers` — Remove database members missing the team role.',
-          inline: false 
+            '`/syncteammembers` — Remove database members missing the team role.' 
         }
       )
       .setFooter({ text: 'Arena Hub Bot Systems' });
