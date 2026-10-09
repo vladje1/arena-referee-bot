@@ -149,8 +149,8 @@ const commands = [
   new SlashCommandBuilder().setName('changemessagetracking').setDescription('(Staff) Manually modify tracked messages')
     .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true))
     .addIntegerOption(o => o.setName('amount').setDescription('Message amount offset').setRequired(true)),
-  new SlashCommandBuilder().setName('cleanup').setDescription('(Staff) Delete teams with only a leader'),
-  new SlashCommandBuilder().setName('cleanuporphanteams').setDescription('(Staff) Delete orphan channels/roles'),
+  new SlashCommandBuilder().setName('cleanup').setDescription('(Staff) Delete teams with 1 or fewer members or missing leaders'),
+  new SlashCommandBuilder().setName('cleanuporphanteams').setDescription('(Staff) Delete database entries for non-existent channels/roles'),
   new SlashCommandBuilder().setName('deletetournamentsignups').setDescription('(Staff) Delete tournament sign-up messages'),
   new SlashCommandBuilder().setName('endgiveaway').setDescription('(Staff) End an active giveaway and pick winner(s)')
     .addStringOption(o => o.setName('prize').setDescription('Giveaway prize').setRequired(true).setAutocomplete(true)),
@@ -381,7 +381,7 @@ client.on('interactionCreate', async (interaction) => {
           },
           { 
             name: '🛠️ Staff Commands (Management)', 
-            value: '/bypassteamlimit [team] — Bypass limit.\n/changegiveawayprize [prize] — Edit giveaway prize.\n/changemessagetracking [user] [amount] — Edit msgs.\n/cleanup — Clean empty teams.\n/cleanuporphanteams — Clean orphans.\n/deletetournamentsignups — Clear signups.\n/forceadd [user] [team] — Force add.\n/forcekick [user] — Force kick.\n/globalteammessage [msg] — Broadcast.\n/premiumteamsettings [team] — Premium settings.\n/sendtournament [team] — Notify tournament & signup button.\n/staffchangesettings [team] — Staff settings.\n/staffleaderpromote [team] [user] — Force promote.\n/syncglobalmessages — Sync all msgs.\n/syncinvites — Sync invites.\n/syncmessages — Sync weekly msgs.\n/syncteammembers — Sync roles.' 
+            value: '/bypassteamlimit [team] — Bypass limit.\n/changegiveawayprize [prize] — Edit giveaway prize.\n/changemessagetracking [user] [amount] — Edit msgs.\n/cleanup — Clean empty/leaderless teams.\n/cleanuporphanteams — Clean orphan channels/roles.\n/deletetournamentsignups — Clear signups.\n/forceadd [user] [team] — Force add.\n/forcekick [user] — Force kick.\n/globalteammessage [msg] — Broadcast.\n/premiumteamsettings [team] — Premium settings.\n/sendtournament [team] — Notify tournament & signup button.\n/staffchangesettings [team] — Staff settings.\n/staffleaderpromote [team] [user] — Force promote.\n/syncglobalmessages — Sync all msgs.\n/syncinvites — Sync invites.\n/syncmessages — Sync weekly msgs.\n/syncteammembers — Sync roles.' 
           }
         )
         .setFooter({ text: 'Arena Hub Bot Systems' });
@@ -643,20 +643,93 @@ client.on('interactionCreate', async (interaction) => {
       return await interaction.reply({ content: `✅ Adjusted message count for <@${targetUser.id}> by **${amount}** messages.`, ephemeral: true });
     }
 
+    // --- UPDATED FULL CLEANUP COMMAND ---
     if (commandName === 'cleanup') {
       if (!isStaff(interaction.member)) return await interaction.reply({ content: '❌ Staff only.', ephemeral: true });
-      const result = await Team.deleteMany({ $expr: {$lte: [{ $size: '$members' }, 1] } });
-      return await interaction.reply({ content: `🧹 Cleanup complete. Deleted **${result.deletedCount}** empty or single-leader team(s).`, ephemeral: true });
+      await interaction.deferReply({ ephemeral: true });
+
+      // Find teams with 1 or fewer members, OR with no leader/invalid leader
+      const teamsToDelete = await Team.find({
+        $or: [
+          { members: { $exists: false } },
+          { members: { $size: 0 } },           { members: {$size: 1 } },
+          { leaderId: null },
+          { leaderId: 'none' },
+          { leaderId: '' }
+        ]
+      });
+
+      let deletedCount = 0;
+      for (const team of teamsToDelete) {
+        // Delete channels and roles associated with the team from Discord
+        if (team.channelId) {
+          try {
+            const ch = await interaction.guild.channels.fetch(team.channelId);
+            if (ch) await ch.delete();
+          } catch (e) {}
+        }
+        if (team.roleId) {
+          try {
+            const r = await interaction.guild.roles.fetch(team.roleId);
+            if (r) await r.delete();
+          } catch (e) {}
+        }
+        if (team.leaderRoleId) {
+          try {
+            const lr = await interaction.guild.roles.fetch(team.leaderRoleId);
+            if (lr) await lr.delete();
+          } catch (e) {}
+        }
+        if (team.coLeaderRoleId) {
+          try {
+            const cr = await interaction.guild.roles.fetch(team.coLeaderRoleId);
+            if (cr) await cr.delete();
+          } catch (e) {}
+        }
+
+        await Team.deleteOne({ _id: team._id });
+        deletedCount++;
+      }
+
+      return await interaction.editReply({ content: `🧹 Cleanup complete! Deleted **${deletedCount}** empty, single-leader, or leaderless team(s) along with their channels and roles.` });
     }
 
+    // --- UPDATED ORPHAN CLEANUP COMMAND ---
     if (commandName === 'cleanuporphanteams') {
       if (!isStaff(interaction.member)) return await interaction.reply({ content: '❌ Staff only.', ephemeral: true });
-      return await interaction.reply({ content: '🧹 Orphan channel/role check complete. All valid team structures verified.', ephemeral: true });
+      await interaction.deferReply({ ephemeral: true });
+
+      const allTeams = await Team.find({});
+      let cleanedCount = 0;
+
+      for (const team of allTeams) {
+        let channelExists = false;
+        let roleExists = false;
+
+        if (team.channelId) {
+          const ch = await interaction.guild.channels.fetch(team.channelId).catch(() => null);
+          if (ch) channelExists = true;
+        }
+
+        if (team.roleId) {
+          const r = await interaction.guild.roles.fetch(team.roleId).catch(() => null);
+          if (r) roleExists = true;
+        }
+
+        // If neither channel nor role exists anymore, remove orphan team record
+        if (!channelExists && !roleExists) {
+          await Team.deleteOne({ _id: team._id });
+          cleanedCount++;
+        }
+      }
+
+      return await interaction.editReply({ content: `🧹 Orphan cleanup complete! Removed **${cleanedCount}** orphaned team record(s) whose Discord channels/roles no longer existed.` });
     }
 
     if (commandName === 'deletetournamentsignups') {
       if (!isStaff(interaction.member)) return await interaction.reply({ content: '❌ Staff only.', ephemeral: true });
-      return await interaction.reply({ content: '🗑️ Tournament sign-up messages cleared successfully.', ephemeral: true });
+      await TournamentSignup.deleteMany({});
+      return await interaction.reply({ content: '🗑️ Tournament sign-up messages and database records cleared successfully.', ephemeral: true });
     }
 
     // --- END GIVEAWAY COMMAND ---
@@ -674,7 +747,6 @@ client.on('interactionCreate', async (interaction) => {
 
       let winnerMentions = 'No valid entries!';
       if (giveaway.participants.length > 0) {
-        // Pick random winner(s)
         const shuffled = [...giveaway.participants].sort(() => 0.5 - Math.random());
         const winners = shuffled.slice(0, giveaway.winnersCount);
         winnerMentions = winners.map(id => `<@${id}>`).join(', ');
