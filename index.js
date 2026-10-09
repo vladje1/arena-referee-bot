@@ -144,6 +144,8 @@ const commands = [
   new SlashCommandBuilder().setName('activitychart').setDescription('(Staff) Full server activity & engagement report'),
   new SlashCommandBuilder().setName('bypassteamlimit').setDescription('(Staff) Let team exceed 10-member cap')
     .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true)),
+  new SlashCommandBuilder().setName('changegiveawayprize').setDescription('(Staff) Change prize on an existing giveaway')
+    .addStringOption(o => o.setName('prize').setDescription('New prize text').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('changemessagetracking').setDescription('(Staff) Manually modify tracked messages')
     .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true))
     .addIntegerOption(o => o.setName('amount').setDescription('Message amount offset').setRequired(true)),
@@ -226,6 +228,14 @@ client.on('interactionCreate', async (interaction) => {
           { name: 'Gold (#f1c40f)', value: '#f1c40f' }
         ].filter(c => c.name.toLowerCase().includes(focusedValue.toLowerCase()));
         return await interaction.respond(colors);
+      }
+
+      if (['prize'].includes(optionName)) {
+        const giveaways = await Giveaway.find({ prize: { $regex: focusedValue,$options: 'i' }, ended: false }).limit(25);
+        if (giveaways.length === 0) {
+          return await interaction.respond([{ name: focusedValue || 'New Prize', value: focusedValue || 'Default Prize' }]);
+        }
+        return await interaction.respond(giveaways.map(g => ({ name: g.prize, value: g.prize })));
       }
 
       return await interaction.respond([]);
@@ -369,7 +379,7 @@ client.on('interactionCreate', async (interaction) => {
           },
           { 
             name: '🛠️ Staff Commands (Management)', 
-            value: '/bypassteamlimit [team] — Bypass limit.\n/changemessagetracking [user] [amount] — Edit msgs.\n/cleanup — Clean empty teams.\n/cleanuporphanteams — Clean orphans.\n/deletetournamentsignups — Clear signups.\n/forceadd [user] [team] — Force add.\n/forcekick [user] — Force kick.\n/globalteammessage [msg] — Broadcast.\n/premiumteamsettings [team] — Premium settings.\n/sendtournament [team] — Notify tournament & signup button.\n/staffchangesettings [team] — Staff settings.\n/staffleaderpromote [team] [user] — Force promote.\n/syncglobalmessages — Sync all msgs.\n/syncinvites — Sync invites.\n/syncmessages — Sync weekly msgs.\n/syncteammembers — Sync roles.' 
+            value: '/bypassteamlimit [team] — Bypass limit.\n/changegiveawayprize [prize] — Edit giveaway prize.\n/changemessagetracking [user] [amount] — Edit msgs.\n/cleanup — Clean empty teams.\n/cleanuporphanteams — Clean orphans.\n/deletetournamentsignups — Clear signups.\n/forceadd [user] [team] — Force add.\n/forcekick [user] — Force kick.\n/globalteammessage [msg] — Broadcast.\n/premiumteamsettings [team] — Premium settings.\n/sendtournament [team] — Notify tournament & signup button.\n/staffchangesettings [team] — Staff settings.\n/staffleaderpromote [team] [user] — Force promote.\n/syncglobalmessages — Sync all msgs.\n/syncinvites — Sync invites.\n/syncmessages — Sync weekly msgs.\n/syncteammembers — Sync roles.' 
           }
         )
         .setFooter({ text: 'Arena Hub Bot Systems' });
@@ -607,6 +617,16 @@ client.on('interactionCreate', async (interaction) => {
       team.bypassedLimit = true;
       await team.save();
       return await interaction.reply({ content: `✅ Team **${team.name}** can now exceed the 10-member limit.`, ephemeral: true });
+    }
+
+    if (commandName === 'changegiveawayprize') {
+      if (!isStaff(interaction.member)) return await interaction.reply({ content: '❌ Staff only.', ephemeral: true });
+      const newPrize = interaction.options.getString('prize');
+      const giveaway = await Giveaway.findOne({ ended: false }).sort({ _id: -1 });
+      if (!giveaway) return await interaction.reply({ content: '❌ No active giveaway found.', ephemeral: true });
+      giveaway.prize = newPrize;
+      await giveaway.save();
+      return await interaction.reply({ content: `✅ Updated the latest active giveaway prize to: **${newPrize}**`, ephemeral: true });
     }
 
     if (commandName === 'changemessagetracking') {
