@@ -323,7 +323,7 @@ client.on('interactionCreate', async (interaction) => {
 
   const { commandName } = interaction;
 
-  // --- HELP COMMAND (COMPREHENSIVE) ---
+// --- HELP COMMAND (COMPREHENSIVE) ---
   if (commandName === 'help') {
     const helpEmbed = new EmbedBuilder()
       .setTitle('📖 Arena Hub Bot — Complete Command Directory')
@@ -332,56 +332,19 @@ client.on('interactionCreate', async (interaction) => {
       .addFields(
         { 
           name: '🛡️ Team Commands', 
-          value: 
-            '`/createteam [name]` — Create a new team, private channel, and roles.\n' +
-            '`/invite [user]` — Invite a user to your team *(Leaders/Co-Owners)*.\n' +
-            '`/leaveteam` — Leave your current team.\n' +
-            '`/teammembers [team]` — View list of members in a team.\n' +
-            '`/startscrim [team]` — Challenge another team to a scrim *(Leaders/Co-Owners)*.\n' +
-            '`/requestteam [team]` — Ask a team leader if you can join.\n' +
-            '`/changeteamsettings [color]` — Modify team color/settings *(Leaders/Co-Owners)*.\n' +
-            '`/setcoleader [user]` — Assign or remove a team Co-Owner *(Primary Leader)*.\n' +
-            '`/leaderpromote [user]` — Transfer primary team leadership *(Primary Leader)*.' 
+          value: '/createteam [name] — Create a new team, private channel, and roles.\n/invite [user] — Invite a user to your team.\n/leaveteam — Leave your current team.\n/teammembers [team] — View list of members in a team.\n/startscrim [team] — Challenge another team to a scrim.\n/requestteam [team] — Ask a team leader if you can join.\n/changeteamsettings [color] — Modify team color/settings.\n/setcoleader [user] — Assign or remove a team Co-Owner.\n/leaderpromote [user] — Transfer primary team leadership.'
         },
         { 
           name: '📊 Stats & Progression', 
-          value: 
-            '`/quests` — View your available and completed quests.\n' +
-            '`/messages [user]` — Check total and weekly message stats.\n' +
-            '`/messageleaderboard` — Show top active members by messages.\n' +
-            '`/streakcount [user]` — Check current chat activity streaks.\n' +
-            '`/revivestreak` — Revive a lost chat streak.' 
+          value: '/quests — View your available and completed quests.\n/messages [user] — Check total and weekly message stats.\n/messageleaderboard — Show top active members by messages.\n/streakcount [user] — Check current chat activity streaks.\n/revivestreak — Revive a lost chat streak.'
         },
         { 
           name: '⚙️ Staff Commands (General & Utility)', 
-          value: 
-            '`/startgiveaway [prize]` — Start an interactive giveaway.\n' +
-            '`/qotd [question]` — Post a Question of the Day embed.\n' +
-            '`/activitychart` — Generate server activity & engagement report.\n' +
-            '`/checkcontest` — Show top 10 most-voted contest entries.\n' +
-            '`/randomgiverole [role] [count]` — Give a role to random members.\n' +
-            '`/reset-quests [user]` — Reset a specific user\'s completed quests.' 
+          value: '/startgiveaway [prize] — Start an interactive giveaway.\n/qotd [question] — Post a Question of the Day embed.\n/activitychart — Generate server activity & engagement report.\n/checkcontest — Show top 10 most-voted contest entries.\n/randomgiverole [role] [count] — Give a role to random members.\n/reset-quests [user] — Reset a specific user\'s completed quests.'
         },
         { 
           name: '🛠️ Staff Commands (Management & Sync)', 
-          value: 
-            '`/bypassteamlimit [team]` — Let a team exceed the 10-member cap.\n' +
-            '`/changegiveawayprize [prize]` — Update an active giveaway prize.\n' +
-            '`/changemessagetracking [user] [amount]` — Manually adjust tracked messages.\n' +
-            '`/cleanup` — Delete empty teams with only a leader.\n' +
-            '`/cleanuporphanteams` — Delete orphan channels/roles.\n' +
-            '`/deletetournamentsignups` — Delete tournament sign-up messages.\n' +
-            '`/forceadd [user] [team]` — Force-add a user to a team.\n' +
-            '`/forcekick [user]` — Force remove a user from their team.\n' +
-            '`/globalteammessage [message]` — Broadcast message to all team channels.\n' +
-            '`/premiumteamsettings [team]` — Apply premium styling/icons to a team.\n' +
-            '`/sendtournament [team]` — Notify a team they are selected for tournament.\n' +
-            '`/staffchangesettings [team]` — Override/change any team settings.\n' +
-            '`/staffleaderpromote [team] [user]` — Force-promote a user to team leader.\n' +
-            '`/syncglobalmessages` — Rebuild all-time message counts from history.\n' +
-            '`/syncinvites` — Rebuild the invite tracking database.\n' +
-            '`/syncmessages` — Rebuild weekly message counts.\n' +
-            '`/syncteammembers` — Remove database members missing the team role.' 
+          value: '/bypassteamlimit [team] — Let a team exceed the 10-member cap.\n/changegiveawayprize [prize] — Update an active giveaway prize.\n/changemessagetracking [user] [amount] — Manually adjust tracked messages.\n/cleanup — Delete empty teams with only a leader.\n/cleanuporphanteams — Delete orphan channels/roles.\n/deletetournamentsignups — Delete tournament sign-up messages.\n/forceadd [user] [team] — Force-add a user to a team.\n/forcekick [user] — Force remove a user from their team.\n/globalteammessage [message] — Broadcast message to all team channels.\n/premiumteamsettings [team] — Apply premium styling/icons to a team.\n/sendtournament [team] — Notify a team they are selected for tournament.\n/staffchangesettings [team] — Override/change any team settings.\n/staffleaderpromote [team] [user] — Force-promote a user to team leader.\n/syncglobalmessages — Rebuild all-time message counts.\n/syncinvites — Rebuild invite tracking database.\n/syncmessages — Rebuild weekly message counts.\n/syncteammembers — Remove database members missing the team role.'
         }
       )
       .setFooter({ text: 'Arena Hub Bot Systems' });
