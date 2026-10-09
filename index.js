@@ -44,9 +44,7 @@ const playerSchema = new mongoose.Schema({
   deaths: { type: Number, default: 0 },
   completedQuests: { type: [String], default: [] },
   messagesCount: { type: Number, default: 0 },
-  weeklyMessages: { type: Number, default: 0 },
-  chatStreak: { type: Number, default: 0 },
-  lastActiveDate: { type: String, default: '' }
+  weeklyMessages: { type: Number, default: 0 }
 });
 const Player = mongoose.model('Player', playerSchema);
 
@@ -142,19 +140,13 @@ const commands = [
   new SlashCommandBuilder().setName('messages').setDescription('Check your message stats')
     .addUserOption(o => o.setName('user').setDescription('User to check stats for').setRequired(false)),
   new SlashCommandBuilder().setName('messageleaderboard').setDescription('Show top active members by messages'),
-  new SlashCommandBuilder().setName('streakcount').setDescription('Show chat streak')
-    .addUserOption(o => o.setName('user').setDescription('User to check streak for').setRequired(false)),
-  new SlashCommandBuilder().setName('revivestreak').setDescription('Revive a chat streak you lost'),
 
   new SlashCommandBuilder().setName('activitychart').setDescription('(Staff) Full server activity & engagement report'),
   new SlashCommandBuilder().setName('bypassteamlimit').setDescription('(Staff) Let team exceed 10-member cap')
     .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true)),
-  new SlashCommandBuilder().setName('changegiveawayprize').setDescription('(Staff) Change prize on an existing giveaway')
-    .addStringOption(o => o.setName('prize').setDescription('New prize text').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('changemessagetracking').setDescription('(Staff) Manually modify tracked messages')
     .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true))
     .addIntegerOption(o => o.setName('amount').setDescription('Message amount offset').setRequired(true)),
-  new SlashCommandBuilder().setName('checkcontest').setDescription('(Staff) Show top 10 most-voted contest entries'),
   new SlashCommandBuilder().setName('cleanup').setDescription('(Staff) Delete teams with only a leader'),
   new SlashCommandBuilder().setName('cleanuporphanteams').setDescription('(Staff) Delete orphan channels/roles'),
   new SlashCommandBuilder().setName('deletetournamentsignups').setDescription('(Staff) Delete tournament sign-up messages'),
@@ -191,7 +183,6 @@ client.once('ready', async () => {
   console.log(`✅ Arena Hub Bot Ready as ${client.user.tag}`);
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   
-  // Clear any old duplicate global commands and register clean guild commands instantly
   await rest.put(Routes.applicationCommands(client.user.id), { body: [] }).catch(() => {});
   await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), { body: commands })
     .then(() => console.log('✅ Successfully registered unique guild commands instantly!'))
@@ -209,17 +200,6 @@ client.on('messageCreate', async (message) => {
 
   player.messagesCount += 1;
   player.weeklyMessages += 1;
-
-  const today = new Date().toISOString().slice(0, 10);
-  if (player.lastActiveDate !== today) {
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-    if (player.lastActiveDate === yesterday) {
-      player.chatStreak += 1;
-    } else if (player.lastActiveDate !== today) {
-      player.chatStreak = 1;
-    }
-    player.lastActiveDate = today;
-  }
 
   await player.save();
 });
@@ -246,14 +226,6 @@ client.on('interactionCreate', async (interaction) => {
           { name: 'Gold (#f1c40f)', value: '#f1c40f' }
         ].filter(c => c.name.toLowerCase().includes(focusedValue.toLowerCase()));
         return await interaction.respond(colors);
-      }
-
-      if (['prize'].includes(optionName)) {
-        const giveaways = await Giveaway.find({ prize: { $regex: focusedValue,$options: 'i' }, ended: false }).limit(25);
-        if (giveaways.length === 0) {
-          return await interaction.respond([{ name: focusedValue || 'New Prize', value: focusedValue || 'Default Prize' }]);
-        }
-        return await interaction.respond(giveaways.map(g => ({ name: g.prize, value: g.prize })));
       }
 
       return await interaction.respond([]);
@@ -389,15 +361,15 @@ client.on('interactionCreate', async (interaction) => {
           },
           { 
             name: '📊 Stats & Progression', 
-            value: '/quests — View quests.\n/messages [user] — Check message stats.\n/messageleaderboard — Top active members.\n/streakcount [user] — Check streak.\n/revivestreak — Revive streak.' 
+            value: '/quests — View quests.\n/messages [user] — Check message stats.\n/messageleaderboard — Top active members.' 
           },
           { 
             name: '⚙️ Staff Commands (General)', 
-            value: '/startgiveaway [prize] — Start giveaway.\n/qotd [question] — Post QOTD with auto-thread.\n/activitychart — Activity report.\n/checkcontest — Contest entries.\n/randomgiverole [role] [count] — Random role.\n/reset-quests [user] — Reset quests.' 
+            value: '/startgiveaway [prize] — Start giveaway.\n/qotd [question] — Post QOTD with auto-thread.\n/activitychart — Activity report.\n/randomgiverole [role] [count] — Random role.\n/reset-quests [user] — Reset quests.' 
           },
           { 
             name: '🛠️ Staff Commands (Management)', 
-            value: '/bypassteamlimit [team] — Bypass limit.\n/changegiveawayprize [prize] — Edit prize.\n/changemessagetracking [user] [amount] — Edit msgs.\n/cleanup — Clean empty teams.\n/cleanuporphanteams — Clean orphans.\n/deletetournamentsignups — Clear signups.\n/forceadd [user] [team] — Force add.\n/forcekick [user] — Force kick.\n/globalteammessage [msg] — Broadcast.\n/premiumteamsettings [team] — Premium settings.\n/sendtournament [team] — Notify tournament & signup button.\n/staffchangesettings [team] — Staff settings.\n/staffleaderpromote [team] [user] — Force promote.\n/syncglobalmessages — Sync all msgs.\n/syncinvites — Sync invites.\n/syncmessages — Sync weekly msgs.\n/syncteammembers — Sync roles.' 
+            value: '/bypassteamlimit [team] — Bypass limit.\n/changemessagetracking [user] [amount] — Edit msgs.\n/cleanup — Clean empty teams.\n/cleanuporphanteams — Clean orphans.\n/deletetournamentsignups — Clear signups.\n/forceadd [user] [team] — Force add.\n/forcekick [user] — Force kick.\n/globalteammessage [msg] — Broadcast.\n/premiumteamsettings [team] — Premium settings.\n/sendtournament [team] — Notify tournament & signup button.\n/staffchangesettings [team] — Staff settings.\n/staffleaderpromote [team] [user] — Force promote.\n/syncglobalmessages — Sync all msgs.\n/syncinvites — Sync invites.\n/syncmessages — Sync weekly msgs.\n/syncteammembers — Sync roles.' 
           }
         )
         .setFooter({ text: 'Arena Hub Bot Systems' });
@@ -612,30 +584,16 @@ client.on('interactionCreate', async (interaction) => {
       return await interaction.reply({ embeds: [embed] });
     }
 
-    if (commandName === 'streakcount') {
-      const targetUser = interaction.options.getUser('user') || interaction.user;
-      const player = await Player.findOne({ userId: targetUser.id });
-      return await interaction.reply({ content: `🔥 **${targetUser.username}** has a chat streak of **${player ? player.chatStreak : 0}** days!` });
-    }
-
-    if (commandName === 'revivestreak') {
-      let player = await Player.findOne({ userId: interaction.user.id });
-      if (player) { player.chatStreak += 1; await player.save(); }
-      return await interaction.reply({ content: '✨ Streak revived successfully!', ephemeral: true });
-    }
-
     // --- STAFF COMMANDS FULLY IMPLEMENTED ---
     if (commandName === 'activitychart') {
       if (!isStaff(interaction.member)) return await interaction.reply({ content: '❌ Staff only.', ephemeral: true });
       const totalPlayers = await Player.countDocuments();
       const totalTeams = await Team.countDocuments();
-      const activeToday = await Player.countDocuments({ lastActiveDate: new Date().toISOString().slice(0, 10) });
       const embed = new EmbedBuilder()
         .setTitle('📈 Server Activity & Engagement Report')
         .setColor(0x2ecc71)
         .addFields(
           { name: 'Total Tracked Players', value: `${totalPlayers}`, inline: true },
-          { name: 'Active Today', value: `${activeToday}`, inline: true },
           { name: 'Total Registered Teams', value: `${totalTeams}`, inline: true }
         );
       return await interaction.reply({ embeds: [embed], ephemeral: true });
@@ -651,16 +609,6 @@ client.on('interactionCreate', async (interaction) => {
       return await interaction.reply({ content: `✅ Team **${team.name}** can now exceed the 10-member limit.`, ephemeral: true });
     }
 
-    if (commandName === 'changegiveawayprize') {
-      if (!isStaff(interaction.member)) return await interaction.reply({ content: '❌ Staff only.', ephemeral: true });
-      const newPrize = interaction.options.getString('prize');
-      const giveaway = await Giveaway.findOne({ ended: false }).sort({ _id: -1 });
-      if (!giveaway) return await interaction.reply({ content: '❌ No active giveaway found.', ephemeral: true });
-      giveaway.prize = newPrize;
-      await giveaway.save();
-      return await interaction.reply({ content: `✅ Updated the latest active giveaway prize to: **${newPrize}**`, ephemeral: true });
-    }
-
     if (commandName === 'changemessagetracking') {
       if (!isStaff(interaction.member)) return await interaction.reply({ content: '❌ Staff only.', ephemeral: true });
       const targetUser = interaction.options.getUser('user');
@@ -671,11 +619,6 @@ client.on('interactionCreate', async (interaction) => {
       player.weeklyMessages += amount;
       await player.save();
       return await interaction.reply({ content: `✅ Adjusted message count for <@${targetUser.id}> by **${amount}** messages.`, ephemeral: true });
-    }
-
-    if (commandName === 'checkcontest') {
-      if (!isStaff(interaction.member)) return await interaction.reply({ content: '❌ Staff only.', ephemeral: true });
-      return await interaction.reply({ content: '🏆 Contest entries check: No active voting contests configured at the moment.', ephemeral: true });
     }
 
     if (commandName === 'cleanup') {
