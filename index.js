@@ -8,7 +8,8 @@ const {
   Routes,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  ChannelType
 } = require('discord.js');
 const mongoose = require('mongoose');
 const http = require('http');
@@ -25,7 +26,7 @@ const client = new Client({
 // --- ⚙ CONFIGURATION ---
 const STAFF_ROLE_ID = '1553324535128916070';            
 const EXTRA_STAFF_ROLE_ID = '1553324535128916070';     
-const GUILD_ID = '1553155002959134831'; // Replace with your actual Server ID
+const GUILD_ID = '1553155002959134831';
 
 // --- 📜 QUEST DEFINITIONS ---
 const QUESTS = [
@@ -74,6 +75,13 @@ const giveawaySchema = new mongoose.Schema({
   ended: { type: Boolean, default: false }
 });
 const Giveaway = mongoose.model('Giveaway', giveawaySchema);
+
+const tournamentSignupSchema = new mongoose.Schema({
+  messageId: { type: String, required: true },
+  teamName: { type: String, required: true },
+  players: { type: [String], default: [] }
+});
+const TournamentSignup = mongoose.model('TournamentSignup', tournamentSignupSchema);
 
 // Connect to MongoDB with error handling
 mongoose.connect(process.env.MONGO_URI).catch(err => {
@@ -160,12 +168,12 @@ const commands = [
     .addStringOption(o => o.setName('message').setDescription('Message content').setRequired(true)),
   new SlashCommandBuilder().setName('premiumteamsettings').setDescription('(Staff) Apply gradient or custom role icon to a team')
     .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true)),
-  new SlashCommandBuilder().setName('qotd').setDescription('(Staff) Post a Question of the Day')
+  new SlashCommandBuilder().setName('qotd').setDescription('(Staff) Post a Question of the Day with a discussion thread')
     .addStringOption(o => o.setName('question').setDescription('Question text').setRequired(true)),
   new SlashCommandBuilder().setName('randomgiverole').setDescription('(Staff) Give a role to random members')
     .addRoleOption(o => o.setName('role').setDescription('Role to give').setRequired(true))
     .addIntegerOption(o => o.setName('count').setDescription('Number of members').setRequired(true)),
-  new SlashCommandBuilder().setName('sendtournament').setDescription('(Staff) Tell teams they are selected for tournament')
+  new SlashCommandBuilder().setName('sendtournament').setDescription('(Staff) Tell teams they are selected for tournament & send interactive signup')
     .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('staffchangesettings').setDescription('(Staff) Change any team settings')
     .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true)),
@@ -222,7 +230,7 @@ client.on('interactionCreate', async (interaction) => {
       const focusedValue = focusedOption.value;
       const optionName = focusedOption.name;
 
-      if (['team', 'name', 'bypassteamlimit'].includes(optionName)) {
+      if (['team', 'name', 'bypassteamlimit', 'sendtournament', 'staffchangesettings', 'staffleaderpromote'].includes(optionName)) {
         const teams = await Team.find({ name: { $regex: focusedValue,$options: 'i' } }).limit(25);
         return await interaction.respond(teams.map(t => ({ name: t.name, value: t.name })));
       }
@@ -320,6 +328,46 @@ client.on('interactionCreate', async (interaction) => {
       return interaction.reply({ content: '✅ Successfully entered the giveaway! Good luck! 🍀', ephemeral: true });
     }
 
+    if (interaction.customId.startsWith('tourney_signup_')) {
+      const teamName = interaction.customId.replace('tourney_signup_', '');
+      let signup = await TournamentSignup.findOne({ messageId: interaction.message.id });
+      
+      if (!signup) {
+        signup = await TournamentSignup.create({ messageId: interaction.message.id, teamName, players: [] });
+      }
+
+      const userId = interaction.user.id;
+      const index = signup.players.indexOf(userId);
+
+      if (index > -1) {
+        signup.players.splice(index, 1);
+        await signup.save();
+        
+        const updatedRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`tourney_signup_${teamName}`)
+            .setLabel(`I'm Playing! 🎮 (${signup.players.length})`)
+            .setStyle(ButtonStyle.Success)
+        );
+
+        await interaction.update({ components: [updatedRow] }).catch(() => {});
+        return interaction.followUp({ content: '❌ You have opted out of this tournament lineup.', ephemeral: true });
+      } else {
+        signup.players.push(userId);
+        await signup.save();
+
+        const updatedRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`tourney_signup_${teamName}`)
+            .setLabel(`I'm Playing! 🎮 (${signup.players.length})`)
+            .setStyle(ButtonStyle.Success)
+        );
+
+        await interaction.update({ components: [updatedRow] }).catch(() => {});
+        return interaction.followUp({ content: `✅ Registered! You are locked in for **${teamName}** (${signup.players.length} players playing)!`, ephemeral: true });
+      }
+    }
+
     return;
   }
 
@@ -343,11 +391,11 @@ client.on('interactionCreate', async (interaction) => {
           },
           { 
             name: '⚙️ Staff Commands (General)', 
-            value: '/startgiveaway [prize] — Start giveaway.\n/qotd [question] — Post QOTD.\n/activitychart — Activity report.\n/checkcontest — Contest entries.\n/randomgiverole [role] [count] — Random role.\n/reset-quests [user] — Reset quests.' 
+            value: '/startgiveaway [prize] — Start giveaway.\n/qotd [question] — Post QOTD with auto-thread.\n/activitychart — Activity report.\n/checkcontest — Contest entries.\n/randomgiverole [role] [count] — Random role.\n/reset-quests [user] — Reset quests.' 
           },
           { 
             name: '🛠️ Staff Commands (Management)', 
-            value: '/bypassteamlimit [team] — Bypass limit.\n/changegiveawayprize [prize] — Edit prize.\n/changemessagetracking [user] [amount] — Edit msgs.\n/cleanup — Clean empty teams.\n/cleanuporphanteams — Clean orphans.\n/deletetournamentsignups — Clear signups.\n/forceadd [user] [team] — Force add.\n/forcekick [user] — Force kick.\n/globalteammessage [msg] — Broadcast.\n/premiumteamsettings [team] — Premium settings.\n/sendtournament [team] — Notify tournament.\n/staffchangesettings [team] — Staff settings.\n/staffleaderpromote [team] [user] — Force promote.\n/syncglobalmessages — Sync all msgs.\n/syncinvites — Sync invites.\n/syncmessages — Sync weekly msgs.\n/syncteammembers — Sync roles.' 
+            value: '/bypassteamlimit [team] — Bypass limit.\n/changegiveawayprize [prize] — Edit prize.\n/changemessagetracking [user] [amount] — Edit msgs.\n/cleanup — Clean empty teams.\n/cleanuporphanteams — Clean orphans.\n/deletetournamentsignups — Clear signups.\n/forceadd [user] [team] — Force add.\n/forcekick [user] — Force kick.\n/globalteammessage [msg] — Broadcast.\n/premiumteamsettings [team] — Premium settings.\n/sendtournament [team] — Notify tournament & signup button.\n/staffchangesettings [team] — Staff settings.\n/staffleaderpromote [team] [user] — Force promote.\n/syncglobalmessages — Sync all msgs.\n/syncinvites — Sync invites.\n/syncmessages — Sync weekly msgs.\n/syncteammembers — Sync roles.' 
           }
         )
         .setFooter({ text: 'Arena Hub Bot Systems' });
@@ -730,11 +778,31 @@ client.on('interactionCreate', async (interaction) => {
       return await interaction.reply({ content: `✨ Premium visual settings applied to team **${team.name}**!`, ephemeral: true });
     }
 
+    // --- UPDATED QOTD COMMAND (AUTO-THREAD CREATION) ---
     if (commandName === 'qotd') {
       if (!isStaff(interaction.member)) return await interaction.reply({ content: '❌ Staff permissions required.', ephemeral: true });
-      const q = interaction.options.getString('question');
-      const embed = new EmbedBuilder().setTitle('❓ Question of the Day').setDescription(q).setColor(0x3498db);
-      return await interaction.reply({ embeds: [embed] });
+      const questionText = interaction.options.getString('question');
+
+      const qotdEmbed = new EmbedBuilder()
+        .setTitle('❓ Question of the Day')
+        .setDescription(questionText)
+        .setColor(0x3498db)
+        .setFooter({ text: `Posted by ${interaction.user.username}` });
+
+      // Reply with the embed first
+      const sentMessage = await interaction.reply({ embeds: [qotdEmbed], fetchReply: true });
+
+      // Automatically create a public discussion thread on that message
+      try {
+        await sentMessage.startThread({
+          name: `QOTD Discussion: ${questionText.length > 50 ? questionText.slice(0, 47) + '...' : questionText}`,
+          autoArchiveDuration: 1440, // Automatically archive after 24 hours of inactivity
+          reason: 'Daily Question discussion thread'
+        });
+      } catch (e) {
+        console.error('Failed to create QOTD thread:', e);
+      }
+      return;
     }
 
     if (commandName === 'randomgiverole') {
@@ -760,14 +828,35 @@ client.on('interactionCreate', async (interaction) => {
       if (!isStaff(interaction.member)) return await interaction.reply({ content: '❌ Staff only.', ephemeral: true });
       const teamName = interaction.options.getString('team');
       const team = await Team.findOne({ name: teamName });
-      if (!team) return await interaction.reply({ content: '❌ Team not found.', ephemeral: true });
+      if (!team) return await interaction.reply({ content: '❌ Team not found in database.', ephemeral: true });
+
+      const tourneyEmbed = new EmbedBuilder()
+        .setTitle('🏆 Tournament Selection & Signup')
+        .setDescription(`Your team (**${team.name}**) has been selected for the upcoming tournament!\n\nClick the button below to confirm you are playing so we can track the lineup count.`)
+        .setColor(team.colour);
+
+      const signupRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`tourney_signup_${team.name}`)
+          .setLabel("I'm Playing! 🎮 (0)")
+          .setStyle(ButtonStyle.Success)
+      );
+
       if (team.channelId) {
         try {
           const channel = await interaction.guild.channels.fetch(team.channelId);
-          await channel.send(`🏆 **Tournament Update:** Your team has been officially selected/notified for the upcoming tournament!`);
+          if (channel) {
+            const roleMention = team.roleId ? `<@&${team.roleId}>` : `**${team.name}**`;
+            await channel.send({
+              content: `🔔 ATTENTION ${roleMention}!`,
+              embeds: [tourneyEmbed],
+              components: [signupRow]
+            });
+          }
         } catch (e) {}
       }
-      return await interaction.reply({ content: `✅ Tournament notification sent to team **${team.name}**.`, ephemeral: true });
+
+      return await interaction.reply({ content: `✅ Tournament signup message sent to team **${team.name}**'s channel!`, ephemeral: true });
     }
 
     if (commandName === 'staffchangesettings') {
@@ -806,7 +895,7 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     if (commandName === 'syncinvites') {
-      if (!isStaff(interaction.enter)) return await interaction.reply({ content: '❌ Staff only.', ephemeral: true });
+      if (!isStaff(interaction.member)) return await interaction.reply({ content: '❌ Staff only.', ephemeral: true });
       return await interaction.reply({ content: '🔄 Invite tracking database rebuilt successfully.', ephemeral: true });
     }
 
