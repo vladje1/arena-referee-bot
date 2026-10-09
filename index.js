@@ -152,6 +152,8 @@ const commands = [
   new SlashCommandBuilder().setName('cleanup').setDescription('(Staff) Delete teams with only a leader'),
   new SlashCommandBuilder().setName('cleanuporphanteams').setDescription('(Staff) Delete orphan channels/roles'),
   new SlashCommandBuilder().setName('deletetournamentsignups').setDescription('(Staff) Delete tournament sign-up messages'),
+  new SlashCommandBuilder().setName('endgiveaway').setDescription('(Staff) End an active giveaway and pick winner(s)')
+    .addStringOption(o => o.setName('prize').setDescription('Giveaway prize').setRequired(true).setAutocomplete(true)),
   new SlashCommandBuilder().setName('forceadd').setDescription('(Staff) Force-add member to team')
     .addUserOption(o => o.setName('user').setDescription('Target user').setRequired(true))
     .addStringOption(o => o.setName('team').setDescription('Team name').setRequired(true).setAutocomplete(true)),
@@ -375,7 +377,7 @@ client.on('interactionCreate', async (interaction) => {
           },
           { 
             name: '⚙️ Staff Commands (General)', 
-            value: '/startgiveaway [prize] — Start giveaway.\n/qotd [question] — Post QOTD with auto-thread.\n/activitychart — Activity report.\n/randomgiverole [role] [count] — Random role.\n/reset-quests [user] — Reset quests.' 
+            value: '/startgiveaway [prize] — Start giveaway.\n/endgiveaway [prize] — End giveaway.\n/qotd [question] — Post QOTD with auto-thread.\n/activitychart — Activity report.\n/randomgiverole [role] [count] — Random role.\n/reset-quests [user] — Reset quests.' 
           },
           { 
             name: '🛠️ Staff Commands (Management)', 
@@ -655,6 +657,46 @@ client.on('interactionCreate', async (interaction) => {
     if (commandName === 'deletetournamentsignups') {
       if (!isStaff(interaction.member)) return await interaction.reply({ content: '❌ Staff only.', ephemeral: true });
       return await interaction.reply({ content: '🗑️ Tournament sign-up messages cleared successfully.', ephemeral: true });
+    }
+
+    // --- END GIVEAWAY COMMAND ---
+    if (commandName === 'endgiveaway') {
+      if (!isStaff(interaction.member)) return await interaction.reply({ content: '❌ Staff only.', ephemeral: true });
+      const prizeName = interaction.options.getString('prize');
+      const giveaway = await Giveaway.findOne({ prize: prizeName, ended: false });
+
+      if (!giveaway) {
+        return await interaction.reply({ content: '❌ Active giveaway with that prize not found.', ephemeral: true });
+      }
+
+      giveaway.ended = true;
+      await giveaway.save();
+
+      let winnerMentions = 'No valid entries!';
+      if (giveaway.participants.length > 0) {
+        // Pick random winner(s)
+        const shuffled = [...giveaway.participants].sort(() => 0.5 - Math.random());
+        const winners = shuffled.slice(0, giveaway.winnersCount);
+        winnerMentions = winners.map(id => `<@${id}>`).join(', ');
+      }
+
+      try {
+        const channel = await interaction.guild.channels.fetch(giveaway.channelId);
+        if (channel) {
+          const msg = await channel.messages.fetch(giveaway.messageId).catch(() => {});
+          if (msg) {
+            const endedEmbed = new EmbedBuilder()
+              .setTitle('🎉 GIVEAWAY ENDED 🎉')
+              .setDescription(`Prize: **${giveaway.prize}**\n\n🏆 **Winner(s):** ${winnerMentions}`)
+              .setColor(0x9b59b6);
+            await msg.edit({ embeds: [endedEmbed], components: [] });
+          }
+        }
+      } catch (e) {
+        console.error('Failed to update giveaway message:', e);
+      }
+
+      return await interaction.reply({ content: `✅ Giveaway for **${giveaway.prize}** has ended! Winner(s): ${winnerMentions}`, ephemeral: true });
     }
 
     if (commandName === 'forceadd') {
